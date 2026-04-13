@@ -46,7 +46,6 @@ export default function ChatPage() {
     // Create new chat if none exists or active
     if (!activeChatId) {
       activeChatId = createChat(input.substring(0, 30) + (input.length > 30 ? "..." : ""));
-      // We push the URL but continue using activeChatId locally to avoid race conditions
       router.push(`/chat?id=${activeChatId}`);
     }
 
@@ -57,8 +56,9 @@ export default function ChatPage() {
     setIsLoading(true);
 
     try {
-      // Find the messages for the current chat session
-      const chat = chats.find(c => c.id === activeChatId);
+      // Get the most up-to-date chat from the store to avoid stale closure state
+      const latestChats = useStore.getState().chats;
+      const chat = latestChats.find(c => c.id === activeChatId);
       const history = chat?.messages.map(m => ({ 
         role: m.role, 
         content: m.content 

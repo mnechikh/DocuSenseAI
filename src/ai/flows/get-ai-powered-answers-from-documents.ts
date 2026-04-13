@@ -11,7 +11,6 @@ const DocumentChunkSchema = z.object({
   metadata: z.object({
     documentId: z.string().describe('The source document ID.'),
     filename: z.string().describe('The source filename.'),
-    pageSection: z.string().optional().describe('Section metadata.'),
   }).describe('Metadata.'),
 });
 
@@ -35,6 +34,9 @@ const GetAIPoweredAnswersFromDocumentsOutputSchema = z.object({
 });
 export type GetAIPoweredAnswersFromDocumentsOutput = z.infer<typeof GetAIPoweredAnswersFromDocumentsOutputSchema>;
 
+/**
+ * Deterministic retrieval logic used inside the flow.
+ */
 async function retrieveRelevantChunks(
   query: string,
   tenantId: string
@@ -42,16 +44,19 @@ async function retrieveRelevantChunks(
   const tenantData = mockVectorDb[tenantId] || [];
   
   // Simple keyword matching for prototype retrieval
-  const words = query.toLowerCase().split(/\s+/);
-  const results = tenantData.filter(item => {
+  const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  
+  let results = tenantData.filter(item => {
     const text = item.content.toLowerCase();
-    return words.some(word => word.length > 3 && text.includes(word));
+    return words.some(word => text.includes(word));
   });
 
-  // If no keyword matches, return a few recent chunks to allow general questions
-  const finalResults = results.length > 0 ? results : tenantData.slice(0, 3);
+  // If no matches, return generic organizational knowledge if available
+  if (results.length === 0) {
+    results = tenantData.slice(0, 3);
+  }
 
-  return finalResults.map(item => ({
+  return results.map(item => ({
     content: item.content,
     metadata: {
       documentId: item.documentId,
@@ -60,39 +65,27 @@ async function retrieveRelevantChunks(
   }));
 }
 
-const retrieveDocumentChunksTool = ai.defineTool(
-  {
-    name: 'retrieveDocumentChunks',
-    description: 'Retrieves relevant document chunks from the tenant database.',
-    inputSchema: z.object({
-      query: z.string(),
-      tenantId: z.string(),
-    }),
-    outputSchema: z.array(DocumentChunkSchema),
-  },
-  async ({ query, tenantId }) => {
-    return await retrieveRelevantChunks(query, tenantId);
-  }
-);
-
 const generateAnswerPrompt = ai.definePrompt({
   name: 'generateAnswerPrompt',
-  tools: [retrieveDocumentChunksTool],
-  input: { schema: GetAIPoweredAnswersFromDocumentsInputSchema },
+  input: { 
+    schema: GetAIPoweredAnswersFromDocumentsInputSchema.extend({
+      context: z.array(DocumentChunkSchema)
+    })
+  },
   output: { schema: GetAIPoweredAnswersFromDocumentsOutputSchema },
-  prompt: `You are a professional AI assistant. You must answer using ONLY the provided document chunks.
-If the information isn't there, say you don't have enough information in the uploaded documents.
+  prompt: `You are a professional AI assistant. You must answer using ONLY the provided document chunks in the "context" field.
+If the information isn't there, say you don't have enough information in the uploaded documents for this tenant.
 
 User Query: {{{query}}}
 
-Document Chunks:
-{{#if @tool_code.retrieveDocumentChunks.output}}
-  {{#each @tool_code.retrieveDocumentChunks.output}}
+Context Documents:
+{{#if context}}
+  {{#each context}}
     [Source: {{{this.metadata.filename}}}]
     {{{this.content}}}
   {{/each}}
 {{else}}
-  No documents found for this query.
+  No relevant documents found for this specific query.
 {{/if}}
 
 Chat History:
@@ -108,7 +101,14 @@ const getAIPoweredAnswersFromDocumentsFlow = ai.defineFlow(
     outputSchema: GetAIPoweredAnswersFromDocumentsOutputSchema,
   },
   async (input) => {
-    const { output } = await generateAnswerPrompt(input);
+    // Perform retrieval BEFORE prompt call for reliability
+    const context = await retrieveRelevantChunks(input.query, input.tenantId);
+    
+    const { output } = await generateAnswerPrompt({
+      ...input,
+      context
+    });
+    
     return output!;
   }
 );

@@ -78,39 +78,46 @@ export default function DocumentsPage() {
     setIsUploading(true);
 
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const dataUri = reader.result as string;
-        
-        updateDocumentStatus(docId, "processing");
-        
-        const result = await uploadAndProcessDocumentForAIAnalysis({
-          tenantId: currentUser.tenantId,
-          documentId: docId,
-          filename: file.name,
-          fileType: file.type,
-          documentDataUri: dataUri
-        });
+      // Use Promise to properly await the file reading
+      const dataUri = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      
+      updateDocumentStatus(docId, "processing");
+      
+      const result = await uploadAndProcessDocumentForAIAnalysis({
+        tenantId: currentUser.tenantId,
+        documentId: docId,
+        filename: file.name,
+        fileType: file.type,
+        documentDataUri: dataUri
+      });
 
-        if (result.status === "processed") {
-          updateDocumentStatus(docId, "indexed", { chunkCount: result.chunkCount });
-          toast({
-            title: "Success",
-            description: `${file.name} has been processed and indexed.`
-          });
-        } else {
-          updateDocumentStatus(docId, "failed", { failureReason: result.message });
-          toast({
-            title: "Processing Failed",
-            description: result.message,
-            variant: "destructive"
-          });
-        }
-      };
-      reader.readAsDataURL(file);
+      if (result.status === "processed") {
+        updateDocumentStatus(docId, "indexed", { chunkCount: result.chunkCount });
+        toast({
+          title: "Success",
+          description: `${file.name} has been processed and indexed.`
+        });
+      } else {
+        updateDocumentStatus(docId, "failed", { failureReason: result.message });
+        toast({
+          title: "Processing Failed",
+          description: result.message,
+          variant: "destructive"
+        });
+      }
     } catch (error) {
       console.error("Upload error:", error);
       updateDocumentStatus(docId, "failed", { failureReason: "Internal processing error." });
+      toast({
+        title: "Upload Error",
+        description: "An unexpected error occurred during document upload.",
+        variant: "destructive"
+      });
     } finally {
       setIsUploading(false);
       // Reset input

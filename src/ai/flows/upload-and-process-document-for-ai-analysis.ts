@@ -1,10 +1,6 @@
 'use server';
 /**
  * @fileOverview A Genkit flow for uploading and processing documents for AI analysis.
- *
- * - uploadAndProcessDocumentForAIAnalysis - A function that orchestrates the document processing pipeline.
- * - UploadAndProcessDocumentInput - The input type for the uploadAndProcessDocumentForAIAnalysis function.
- * - UploadAndProcessDocumentOutput - The return type for the uploadAndProcessDocumentForAIAnalysis function.
  */
 
 import { ai, mockVectorDb } from '@/ai/genkit';
@@ -17,10 +13,8 @@ import { z } from 'genkit';
  */
 async function extractText(documentDataUri: string, fileType: string): Promise<string> {
   console.log(`Extracting text from ${fileType} document...`);
-  await new Promise(resolve => setTimeout(resolve, 500));
+  await new Promise(resolve => setTimeout(resolve, 800)); // Simulate work
 
-  // In a prototype, we can decode base64 if it's plain text, 
-  // or return a descriptive placeholder based on the file type.
   try {
     const base64Content = documentDataUri.split(',')[1];
     if (fileType.includes('text/plain') || fileType.includes('text/csv')) {
@@ -30,7 +24,7 @@ async function extractText(documentDataUri: string, fileType: string): Promise<s
     console.warn("Failed to decode base64, using fallback text.");
   }
 
-  return `This is extracted content from a ${fileType} file. It contains business data relevant to the organization's operations and strategy. Documentation regarding policies, reports, and internal procedures.`;
+  return `This is extracted content from a ${fileType} file. It contains business data relevant to the organization's operations and strategy. Documentation regarding policies, reports, and internal procedures for the specific tenant environment.`;
 }
 
 /**
@@ -40,11 +34,13 @@ async function chunkText(text: string, chunkSize: number = 300, chunkOverlap: nu
   const chunks: string[] = [];
   if (!text) return [];
   
-  // Simple paragraph or fixed size chunking
   for (let i = 0; i < text.length; i += chunkSize - chunkOverlap) {
-    chunks.push(text.substring(i, i + chunkSize));
+    const chunk = text.substring(i, i + chunkSize);
+    if (chunk.trim().length > 10) {
+      chunks.push(chunk);
+    }
   }
-  return chunks.filter(chunk => chunk.trim().length > 10);
+  return chunks;
 }
 
 // --- Genkit Flow Definition ---
@@ -89,11 +85,17 @@ const uploadAndProcessDocumentFlow = ai.defineFlow(
       const extractedText = await extractText(documentDataUri, fileType);
       const chunks = await chunkText(extractedText);
 
-      // Generate embeddings (standard practice for RAG)
-      await ai.generate({
-        model: 'googleai/text-embedding-004',
-        prompt: chunks,
-      });
+      // Generate embeddings using the correct embedding API
+      if (chunks.length > 0) {
+        try {
+          await ai.embedMany({
+            model: 'googleai/text-embedding-004',
+            content: chunks,
+          });
+        } catch (embeddingError) {
+          console.warn("Embedding failed, proceeding with text-only index for prototype:", embeddingError);
+        }
+      }
 
       // Persist to server-side mock DB for immediate retrieval in chat
       if (!mockVectorDb[tenantId]) mockVectorDb[tenantId] = [];
@@ -114,6 +116,7 @@ const uploadAndProcessDocumentFlow = ai.defineFlow(
         chunkCount: chunks.length,
       };
     } catch (error: any) {
+      console.error("Flow error:", error);
       return {
         documentId,
         status: 'failed',

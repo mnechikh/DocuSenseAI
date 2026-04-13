@@ -104,12 +104,32 @@ const getAIPoweredAnswersFromDocumentsFlow = ai.defineFlow(
     // Perform retrieval BEFORE prompt call for reliability
     const context = await retrieveRelevantChunks(input.query, input.tenantId);
     
-    const { output } = await generateAnswerPrompt({
-      ...input,
-      context
-    });
+    let attempts = 0;
+    const maxAttempts = 3;
     
-    return output!;
+    while (attempts < maxAttempts) {
+      try {
+        const { output } = await generateAnswerPrompt({
+          ...input,
+          context
+        });
+        
+        if (!output) throw new Error('AI returned an empty response.');
+        return output;
+      } catch (error: any) {
+        attempts++;
+        console.warn(`AI generation attempt ${attempts} failed:`, error.message);
+        
+        if (attempts >= maxAttempts) {
+          throw error;
+        }
+        
+        // Wait before retrying (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+      }
+    }
+    
+    throw new Error('Failed to generate AI answer after multiple attempts.');
   }
 );
 

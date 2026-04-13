@@ -3,7 +3,7 @@ import type {NextConfig} from 'next';
 const nextConfig: NextConfig = {
   /* Config options for Next.js 15 */
   serverActions: {
-    bodySizeLimit: '5mb',
+    bodySizeLimit: '10mb',
   },
   typescript: {
     ignoreBuildErrors: true,

@@ -47,6 +47,17 @@ export default function DocumentsPage() {
     const file = e.target.files?.[0];
     if (!file || !currentUser) return;
 
+    // Client-side size check (approximate, base64 adds ~33% overhead)
+    // 7MB limit here to safely stay under the 10MB server limit after base64 encoding
+    if (file.size > 7 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Please upload a file smaller than 7MB.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     const allowedTypes = [
       'application/pdf', 
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
@@ -116,8 +127,8 @@ export default function DocumentsPage() {
       }
     } catch (error: any) {
       console.error("Upload error caught in UI:", error);
-      const errorMessage = error.message?.includes("limit") 
-        ? "The file is too large (limit: 5MB). Please try a smaller file."
+      const errorMessage = error.message?.toLowerCase().includes("limit") 
+        ? "The file is too large for the current system configuration."
         : "An unexpected error occurred during document upload.";
       
       updateDocumentStatus(docId, "failed", { failureReason: errorMessage });

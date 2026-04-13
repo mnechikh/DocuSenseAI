@@ -74,20 +74,24 @@ export default function DocumentsPage() {
       timestamp: Date.now()
     };
 
-    addDocument(newDoc);
     setIsUploading(true);
+    addDocument(newDoc);
 
     try {
-      // Use Promise to properly await the file reading
+      // Step 1: Read file as Data URI locally
       const dataUri = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
+        reader.onerror = (err) => {
+          console.error("FileReader error:", err);
+          reject(new Error("Failed to read local file."));
+        };
         reader.readAsDataURL(file);
       });
       
       updateDocumentStatus(docId, "processing");
       
+      // Step 2: Send to Server Action (Flow)
       const result = await uploadAndProcessDocumentForAIAnalysis({
         tenantId: currentUser.tenantId,
         documentId: docId,
@@ -110,17 +114,21 @@ export default function DocumentsPage() {
           variant: "destructive"
         });
       }
-    } catch (error) {
-      console.error("Upload error:", error);
-      updateDocumentStatus(docId, "failed", { failureReason: "Internal processing error." });
+    } catch (error: any) {
+      console.error("Upload error caught in UI:", error);
+      const errorMessage = error.message?.includes("exceeded 1 MB limit") 
+        ? "The file is too large for the current configuration. Please try a smaller file."
+        : "An unexpected error occurred during document upload.";
+      
+      updateDocumentStatus(docId, "failed", { failureReason: errorMessage });
       toast({
         title: "Upload Error",
-        description: "An unexpected error occurred during document upload.",
+        description: errorMessage,
         variant: "destructive"
       });
     } finally {
       setIsUploading(false);
-      // Reset input
+      // Reset input for next selection
       e.target.value = "";
     }
   };
@@ -145,8 +153,8 @@ export default function DocumentsPage() {
             disabled={isUploading}
             accept=".pdf,.docx,.txt,.csv,.xlsx"
           />
-          <Button asChild className="bg-primary hover:bg-primary/90 shadow-md">
-            <label htmlFor="doc-upload" className="cursor-pointer flex items-center">
+          <Button asChild className="bg-primary hover:bg-primary/90 shadow-md" disabled={isUploading}>
+            <label htmlFor="doc-upload" className={isUploading ? "cursor-not-allowed opacity-70 flex items-center" : "cursor-pointer flex items-center"}>
               {isUploading ? <Clock className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
               {isUploading ? "Uploading..." : "Add New Document"}
             </label>
@@ -210,7 +218,7 @@ export default function DocumentsPage() {
                         ) : (
                           <div className="flex items-center gap-1.5 text-destructive">
                             <AlertCircle className="w-4 h-4" />
-                            <span className="text-xs font-semibold">Error</span>
+                            <span className="text-xs font-semibold" title={doc.failureReason}>Error</span>
                           </div>
                         )}
                       </TableCell>

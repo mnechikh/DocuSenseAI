@@ -13,10 +13,8 @@ import {
   User, 
   Loader2, 
   ArrowLeft, 
-  Link as LinkIcon, 
-  Quote,
   FileText,
-  AlertCircle
+  ShieldCheck
 } from "lucide-react";
 import { getAIPoweredAnswersFromDocuments } from "@/ai/flows/get-ai-powered-answers-from-documents";
 import { cn } from "@/lib/utils";
@@ -48,24 +46,27 @@ export default function ChatPage() {
     // Create new chat if none exists or active
     if (!activeChatId) {
       activeChatId = createChat(input.substring(0, 30) + (input.length > 30 ? "..." : ""));
+      // We push the URL but continue using activeChatId locally to avoid race conditions
       router.push(`/chat?id=${activeChatId}`);
     }
 
     const userMessage: ChatMessage = { role: "user", content: input };
     addMessageToChat(activeChatId, userMessage);
+    const currentInput = input;
     setInput("");
     setIsLoading(true);
 
     try {
-      // Collect history
-      const history = currentChat?.messages.map(m => ({ 
+      // Find the messages for the current chat session
+      const chat = chats.find(c => c.id === activeChatId);
+      const history = chat?.messages.map(m => ({ 
         role: m.role, 
         content: m.content 
       })) || [];
       
       const response = await getAIPoweredAnswersFromDocuments({
         tenantId: currentUser.tenantId,
-        query: input,
+        query: currentInput,
         chatHistory: history
       });
 
@@ -122,7 +123,7 @@ export default function ChatPage() {
                   Ask questions about your business documents. I will retrieve relevant sections and provide grounded answers with citations.
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-6">
-                  {["What's our return policy?", "Summarize the annual report", "Check HR policies", "Explain Q4 performance"].map(suggestion => (
+                  {["What documents are uploaded?", "Summarize my files", "Check company policies", "Explain recent reports"].map(suggestion => (
                     <Button 
                       key={suggestion} 
                       variant="outline" 
@@ -170,7 +171,7 @@ export default function ChatPage() {
                     {message.citations.map((cite, cIdx) => (
                       <div 
                         key={cIdx} 
-                        className="flex items-center gap-1.5 px-2 py-1 bg-white border border-border/50 rounded-md text-[10px] font-medium text-muted-foreground shadow-sm hover:border-accent transition-colors cursor-pointer"
+                        className="flex items-center gap-1.5 px-2 py-1 bg-white border border-border/50 rounded-md text-[10px] font-medium text-muted-foreground shadow-sm hover:border-accent transition-colors"
                       >
                         <FileText className="w-3 h-3 text-accent" />
                         <span>{cite.documentName}</span>
@@ -215,23 +216,5 @@ export default function ChatPage() {
         </p>
       </div>
     </div>
-  );
-}
-
-function ShieldCheck({ className }: { className?: string }) {
-  return (
-    <svg 
-      xmlns="http://www.w3.org/2000/svg" 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round" 
-      className={className}
-    >
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
   );
 }

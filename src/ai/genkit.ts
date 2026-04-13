@@ -8,11 +8,19 @@ export const ai = genkit({
 
 /**
  * Shared in-memory mock database for the prototype.
- * This allows the 'upload' flow and 'chat' flow to share data in the same process.
+ * We use a global variable to ensure it persists across HMR in development.
  */
-export const mockVectorDb: Record<string, { 
-  documentId: string; 
-  filename: string; 
-  content: string; 
-  tenantId: string;
-}[]> = {};
+const globalForGenkit = global as unknown as {
+  mockVectorDb: Record<string, { 
+    documentId: string; 
+    filename: string; 
+    content: string; 
+    tenantId: string;
+  }[]>;
+};
+
+export const mockVectorDb = globalForGenkit.mockVectorDb || {};
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForGenkit.mockVectorDb = mockVectorDb;
+}

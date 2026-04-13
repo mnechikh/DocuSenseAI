@@ -48,11 +48,11 @@ export default function DocumentsPage() {
     if (!file || !currentUser) return;
 
     // Client-side size check (approximate, base64 adds ~33% overhead)
-    // 7MB limit here to safely stay under the 10MB server limit after base64 encoding
-    if (file.size > 7 * 1024 * 1024) {
+    // 30MB limit here to safely stay under the 50MB server limit
+    if (file.size > 30 * 1024 * 1024) {
       toast({
         title: "File too large",
-        description: "Please upload a file smaller than 7MB.",
+        description: "Please upload a file smaller than 30MB.",
         variant: "destructive"
       });
       return;

@@ -116,8 +116,8 @@ export default function DocumentsPage() {
       }
     } catch (error: any) {
       console.error("Upload error caught in UI:", error);
-      const errorMessage = error.message?.includes("exceeded 1 MB limit") 
-        ? "The file is too large for the current configuration. Please try a smaller file."
+      const errorMessage = error.message?.includes("limit") 
+        ? "The file is too large (limit: 5MB). Please try a smaller file."
         : "An unexpected error occurred during document upload.";
       
       updateDocumentStatus(docId, "failed", { failureReason: errorMessage });

@@ -13,7 +13,7 @@ If you are seeing "nothing to commit", it means you haven't staged your changes 
 
 2. **Commit the changes**:
    ```bash
-   git commit -m "Complete DocuSense AI prototype"
+   git commit -m "Complete DocuSense AI prototype v0.1.1"
    ```
 
 3. **Push to your repository**:
@@ -34,3 +34,6 @@ If you are seeing "nothing to commit", it means you haven't staged your changes 
 - **AI Engine**: Genkit with Google Gemini 1.5 Flash
 - **Styling**: Tailwind CSS & ShadCN UI
 - **State**: Zustand with Persistence
+
+## Troubleshooting Git
+If you get "nothing to commit, working tree clean", ensure you have run `git add .` first. If you've already committed everything, you're ready to run `git push origin main`.

@@ -20,7 +20,7 @@ DocuSense AI is a secure, multi-tenant workspace where organizations can upload 
 If you are seeing "nothing to commit", ensure you stage your files first:
 
 ```bash
-# 1. Stage all changes
+# 1. Stage all changes (REQUIRED before committing)
 git add .
 
 # 2. Commit the changes

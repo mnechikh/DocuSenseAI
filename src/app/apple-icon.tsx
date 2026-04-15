@@ -1,10 +1,10 @@
 import { ImageResponse } from 'next/og';
 
 export const runtime = 'edge';
-export const size = { width: 32, height: 32 };
+export const size = { width: 180, height: 180 };
 export const contentType = 'image/png';
 
-export default function Icon() {
+export default function AppleIcon() {
   return new ImageResponse(
     <div
       style={{
@@ -14,19 +14,18 @@ export default function Icon() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        borderRadius: '7px',
+        borderRadius: '40px',
       }}
     >
-      {/* "L" lettermark — legible at all favicon sizes */}
       <span
         style={{
           color: '#ffffff',
-          fontSize: '20px',
+          fontSize: '110px',
           fontWeight: 800,
           fontFamily: 'sans-serif',
           lineHeight: 1,
-          letterSpacing: '-1px',
-          marginTop: '1px',
+          letterSpacing: '-4px',
+          marginTop: '6px',
         }}
       >
         L

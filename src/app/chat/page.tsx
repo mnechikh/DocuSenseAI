@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 import { useState, useRef, useEffect, Suspense } from "react";
 import { useStore, ChatMessage } from "@/lib/store";
 import { useChats } from "@/hooks/useChats";

@@ -3,8 +3,8 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: 'DocuSense AI | Multi-Tenant AI Knowledge Platform',
-  description: 'Isolated environments for secure multi-tenant AI interaction and document knowledge retrieval.',
+  title: 'Lumxia | AI Life Orchestrator',
+  description: 'Lumxia is a warm, human-centered AI platform that turns your team\'s documents into an always-on knowledge base. Upload, ask, understand.',
 };
 
 export default function RootLayout({

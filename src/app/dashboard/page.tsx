@@ -18,17 +18,21 @@ import Link from "next/link";
 export default function DashboardPage() {
   const { currentUser, documents, chats } = useStore();
 
+  // Strictly scope all data to the current tenant to prevent cross-tenant leaks
+  const tenantDocuments = documents.filter(d => d.tenantId === currentUser?.tenantId);
+  const tenantChats = chats.filter(c => c.tenantId === currentUser?.tenantId);
+
   const stats = [
     { 
       label: "Indexed Documents", 
-      value: documents.filter(d => d.status === "indexed").length, 
+      value: tenantDocuments.filter(d => d.status === "indexed").length, 
       icon: FileText, 
       color: "text-blue-500",
       bg: "bg-blue-50"
     },
     { 
       label: "Total Chats", 
-      value: chats.length, 
+      value: tenantChats.length, 
       icon: MessageSquare, 
       color: "text-teal-500",
       bg: "bg-teal-50"
@@ -42,7 +46,7 @@ export default function DashboardPage() {
     },
   ];
 
-  const recentDocs = documents.slice(0, 5);
+  const recentDocs = tenantDocuments.slice(0, 5);
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
@@ -98,16 +102,17 @@ export default function DashboardPage() {
               <div className="space-y-4">
                 {recentDocs.map((doc) => (
                   <div key={doc.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-white/50">
-                    <div className="flex items-center gap-3">
-                      <FileText className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium leading-none">{doc.filename}</p>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium leading-none truncate">{doc.filename}</p>
                         <p className="text-[10px] text-muted-foreground mt-1">
                           {new Date(doc.timestamp).toLocaleDateString()} • {doc.fileType}
+                          {doc.chunkCount != null && ` • ${doc.chunkCount} chunks`}
                         </p>
                       </div>
                     </div>
-                    <div>
+                    <div className="shrink-0">
                       {doc.status === "indexed" ? (
                         <div className="flex items-center gap-1 text-green-600">
                           <CheckCircle2 className="h-3.5 w-3.5" />
@@ -132,9 +137,14 @@ export default function DashboardPage() {
                 </Button>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
-                <FileText className="h-10 w-10 opacity-20 mb-2" />
-                <p className="text-sm">No documents uploaded yet</p>
+              <div className="flex flex-col items-center justify-center py-10 text-muted-foreground text-center gap-2">
+                <FileText className="h-10 w-10 opacity-20" />
+                <p className="text-sm font-medium">No documents yet</p>
+                {currentUser?.role === "Admin" && (
+                  <Button asChild variant="outline" size="sm" className="mt-2">
+                    <Link href="/documents">Upload your first document</Link>
+                  </Button>
+                )}
               </div>
             )}
           </CardContent>
@@ -161,7 +171,7 @@ export default function DashboardPage() {
               <div className="p-4 bg-white/5 rounded-xl border border-white/5">
                 <p className="text-[10px] uppercase tracking-wider opacity-60 mb-1">Total Chunks</p>
                 <p className="text-xl font-bold">
-                  {documents.reduce((acc, d) => acc + (d.chunkCount || 0), 0)}
+                  {tenantDocuments.reduce((acc, d) => acc + (d.chunkCount || 0), 0)}
                 </p>
               </div>
               <div className="p-4 bg-white/5 rounded-xl border border-white/5">

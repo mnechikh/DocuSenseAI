@@ -5,3 +5,21 @@ runConfig:
   # Increase this value if you'd like to automatically spin up
   # more instances in response to increased traffic.
   maxInstances: 1
+
+env:
+  - variable: GOOGLE_GENAI_API_KEY
+    secret: GOOGLE_GENAI_API_KEY
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyDqgTbXFJV1YCePVkv7kCJ2dKlLGbJnU08
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: studio-5790176463-f6e8c.firebaseapp.com
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: studio-5790176463-f6e8c
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: studio-5790176463-f6e8c.firebasestorage.app
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "662767184869"
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: 1:662767184869:web:739111c2562f57e823dd0c
+  - variable: OWNER_UID
+    value: t0H9YhciYvRRdyN3CniRb3fCaYg1

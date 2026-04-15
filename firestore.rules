@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // chunks collection is read/written server-side only (firebase-admin SDK)
+    // Deny all direct client access for security.
+    match /chunks/{docId} {
+      allow read, write: if false;
+    }
+
+    // users, tenants, invites — server-side only via admin SDK
+    match /users/{uid} {
+      allow read, write: if false;
+    }
+    match /tenants/{tenantId} {
+      allow read, write: if false;
+    }
+    match /invites/{inviteId} {
+      allow read, write: if false;
+    }
+  }
+}

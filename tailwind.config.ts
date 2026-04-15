@@ -15,6 +15,15 @@ export default {
         code: ['monospace'],
       },
       colors: {
+        lumxia: {
+          primary: '#7C8CFF',
+          secondary: '#9B8CFF',
+          accent: '#C084FC',
+          bg: '#0B0F1A',
+          surface: '#1F2937',
+          text: '#F9FAFB',
+          muted: '#9CA3AF',
+        },
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: {

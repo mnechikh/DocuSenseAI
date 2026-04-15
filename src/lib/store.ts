@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type UserRole = "Admin" | "User";
+export type UserStatus = "pending" | "active" | "suspended";
 
 export interface UserProfile {
   userId: string;
@@ -11,6 +12,7 @@ export interface UserProfile {
   email: string;
   role: UserRole;
   name: string;
+  status: UserStatus;
 }
 
 export interface DocumentRecord {
@@ -22,6 +24,9 @@ export interface DocumentRecord {
   timestamp: number;
   chunkCount?: number;
   failureReason?: string;
+  processingMs?: number;
+  /** Persisted chunks for server re-hydration after restarts */
+  chunks?: string[];
 }
 
 export interface ChatMessage {
@@ -46,6 +51,7 @@ interface DocuSenseState {
   
   // Auth Actions
   login: (email: string, tenantId: string, role: UserRole) => void;
+  setCurrentUser: (user: UserProfile) => void;
   logout: () => void;
   
   // Document Actions
@@ -69,15 +75,18 @@ export const useStore = create<DocuSenseState>()(
       
       login: (email, tenantId, role) => set({
         currentUser: {
-          userId: Math.random().toString(36).substr(2, 9),
+          userId: crypto.randomUUID(),
           tenantId,
           email,
           role,
-          name: email.split('@')[0]
+          name: email.split('@')[0],
+          status: "active",
         }
       }),
+
+      setCurrentUser: (user) => set({ currentUser: user }),
       
-      logout: () => set({ currentUser: null }),
+      logout: () => set({ currentUser: null, documents: [], chats: [] }),
       
       addDocument: (doc) => set((state) => ({
         documents: [doc, ...state.documents]
@@ -94,7 +103,7 @@ export const useStore = create<DocuSenseState>()(
       })),
       
       createChat: (title) => {
-        const id = Math.random().toString(36).substr(2, 9);
+        const id = crypto.randomUUID();
         set((state) => {
           if (!state.currentUser) return state;
           return {

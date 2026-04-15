@@ -4,38 +4,45 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { 
-  LayoutDashboard, 
-  MessageSquare, 
-  FileText, 
-  Users, 
-  Settings, 
-  LogOut, 
-  Shield, 
+import {
+  LayoutDashboard,
+  MessageSquare,
+  FileText,
+  Users,
+  LogOut,
   Database,
-  History
+  History,
+  Plus,
+  Trash2,
 } from "lucide-react";
-import { 
-  Sidebar, 
-  SidebarContent, 
-  SidebarFooter, 
-  SidebarHeader, 
-  SidebarMenu, 
-  SidebarMenuButton, 
-  SidebarMenuItem, 
-  SidebarGroup, 
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarGroup,
   SidebarGroupLabel,
-  SidebarSeparator
+  SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import { signOut } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { revokeSessionCookie } from "@/lib/auth-actions";
 
 export function DashboardSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, logout, chats } = useStore();
+  const { currentUser, logout, chats, deleteChat } = useStore();
 
-  const handleLogout = () => {
+  const tenantChats = chats.filter((c) => c.tenantId === currentUser?.tenantId);
+
+  const handleLogout = async () => {
+    await revokeSessionCookie();
+    await signOut(auth).catch(() => {});
     logout();
     router.push("/login");
   };
@@ -49,34 +56,46 @@ export function DashboardSidebar() {
     { label: "User Management", href: "/users", icon: Users, hidden: !isAdmin },
   ];
 
+  const isActive = (href: string) => {
+    if (href === "/chat") return pathname.startsWith("/chat");
+    return pathname === href;
+  };
+
   return (
     <Sidebar className="border-r border-sidebar-border shadow-xl">
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-3 px-2">
-          <div className="p-2 bg-accent rounded-lg">
-            <Shield className="w-5 h-5 text-accent-foreground" />
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center shadow-lg"
+            style={{ background: 'linear-gradient(135deg, #7C8CFF 0%, #9B8CFF 50%, #C084FC 100%)', boxShadow: '0 4px 14px rgba(124,140,255,0.35)' }}
+          >
+            {/* Soft glowing dot — Lumxia mark */}
+            <div style={{ width: '9px', height: '9px', borderRadius: '50%', background: 'rgba(255,255,255,0.95)', boxShadow: '0 0 6px 3px rgba(255,255,255,0.5)' }} />
           </div>
           <div>
-            <h2 className="font-bold text-lg leading-none">DocuSense</h2>
-            <p className="text-[10px] opacity-70 tracking-wider font-medium">KNOWLEDGE BASE</p>
+            <h2 className="font-bold text-lg leading-none tracking-tight">Lumxia</h2>
+            <p className="text-[10px] opacity-50 tracking-widest font-semibold uppercase">AI Platform</p>
           </div>
         </div>
       </SidebarHeader>
 
       <SidebarContent>
+        {/* Main navigation */}
         <SidebarGroup>
           <SidebarGroupLabel className="text-sidebar-foreground/60 px-4 mb-2 uppercase tracking-widest font-semibold text-[10px]">
             Navigation
           </SidebarGroupLabel>
           <SidebarMenu>
-            {navItems.filter(item => !item.hidden).map((item) => (
+            {navItems.filter((item) => !item.hidden).map((item) => (
               <SidebarMenuItem key={item.href}>
-                <SidebarMenuButton 
-                  asChild 
-                  isActive={pathname === item.href}
+                <SidebarMenuButton
+                  asChild
+                  isActive={isActive(item.href)}
                   className={cn(
                     "w-full h-10 px-4",
-                    pathname === item.href ? "bg-accent text-accent-foreground" : "hover:bg-sidebar-accent/20"
+                    isActive(item.href)
+                      ? "bg-accent text-accent-foreground"
+                      : "hover:bg-sidebar-accent/20"
                   )}
                 >
                   <Link href={item.href} className="flex items-center gap-3">
@@ -91,29 +110,69 @@ export function DashboardSidebar() {
 
         <SidebarSeparator className="my-2 opacity-20" />
 
+        {/* Tenant info */}
+        <SidebarGroup>
+          <SidebarGroupLabel className="text-sidebar-foreground/60 px-4 mb-2 uppercase tracking-widest font-semibold text-[10px]">
+            Workspace
+          </SidebarGroupLabel>
+          <div className="px-4 space-y-2">
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-white/5">
+              <Database className="w-3.5 h-3.5 text-accent shrink-0" />
+              <span className="text-xs font-medium truncate">{currentUser?.tenantId}</span>
+            </div>
+          </div>
+        </SidebarGroup>
+
+        <SidebarSeparator className="my-2 opacity-20" />
+
+        {/* Chat history */}
         <SidebarGroup className="flex-1 overflow-hidden">
           <SidebarGroupLabel className="text-sidebar-foreground/60 px-4 mb-2 uppercase tracking-widest font-semibold text-[10px] flex items-center justify-between">
-            Recent Chats
-            <History className="w-3 h-3" />
+            <span className="flex items-center gap-1">
+              <History className="w-3 h-3" />
+              Conversations
+            </span>
+            <button
+              onClick={() => router.push("/chat")}
+              className="p-0.5 rounded hover:bg-white/10 transition-colors"
+              title="New chat"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
           </SidebarGroupLabel>
-          <ScrollArea className="h-[300px] px-2">
+          <ScrollArea className="h-[280px] px-2">
             <SidebarMenu>
-              {chats.length > 0 ? (
-                chats.slice(0, 5).map((chat) => (
+              {tenantChats.length > 0 ? (
+                tenantChats.map((chat) => (
                   <SidebarMenuItem key={chat.id}>
-                    <SidebarMenuButton 
-                      asChild 
-                      className="w-full text-xs opacity-80 hover:opacity-100 h-8 hover:bg-sidebar-accent/20"
-                    >
-                      <Link href={`/chat?id=${chat.id}`} className="truncate">
-                        {chat.title || "Untitled Conversation"}
-                      </Link>
-                    </SidebarMenuButton>
+                    <div className="flex items-center gap-1 w-full rounded-md group">
+                      <SidebarMenuButton
+                        asChild
+                        className="flex-1 text-xs opacity-80 hover:opacity-100 h-8 hover:bg-sidebar-accent/20 truncate"
+                      >
+                        <Link href={`/chat?id=${chat.id}`} className="truncate block">
+                          {chat.title || "Untitled Conversation"}
+                        </Link>
+                      </SidebarMenuButton>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          deleteChat(chat.id);
+                          if (pathname.startsWith("/chat")) router.push("/chat");
+                        }}
+                        className="p-1 opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:text-red-300 transition-all shrink-0"
+                        title="Delete chat"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
                   </SidebarMenuItem>
                 ))
               ) : (
-                <div className="px-4 py-2 text-[10px] text-sidebar-foreground/40 italic">
-                  No previous sessions
+                <div className="px-4 py-3 text-[10px] text-sidebar-foreground/40 italic text-center">
+                  No conversations yet.
+                  <br />
+                  Start a new chat above.
                 </div>
               )}
             </SidebarMenu>
@@ -121,32 +180,25 @@ export function DashboardSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="p-4 space-y-4">
-        <div className="bg-white/10 rounded-xl p-3 border border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-accent-foreground font-bold text-xs">
-              {currentUser?.name?.[0].toUpperCase()}
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <p className="text-sm font-semibold truncate leading-none">{currentUser?.name}</p>
-              <p className="text-[10px] opacity-70 truncate mt-1">{currentUser?.role}</p>
-            </div>
+      <SidebarFooter className="p-4 border-t border-sidebar-border/50">
+        <div className="flex items-center gap-3 mb-3 px-2">
+          <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-accent-foreground font-bold text-sm shrink-0">
+            {currentUser?.name?.charAt(0).toUpperCase() ?? "?"}
           </div>
-          <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-[10px] opacity-60">
-              <Database className="w-3 h-3" />
-              <span>{currentUser?.tenantId}</span>
-            </div>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-6 w-6 text-sidebar-foreground/60 hover:text-white hover:bg-white/10"
-              onClick={handleLogout}
-            >
-              <LogOut className="w-3.5 h-3.5" />
-            </Button>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold leading-none truncate">{currentUser?.name}</p>
+            <p className="text-[10px] opacity-60 mt-1">{currentUser?.role}</p>
           </div>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleLogout}
+          className="w-full justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-white/10 gap-2"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign Out
+        </Button>
       </SidebarFooter>
     </Sidebar>
   );

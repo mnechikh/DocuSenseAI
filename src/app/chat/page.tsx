@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect, Suspense } from "react";
 import { useStore, ChatMessage } from "@/lib/store";
+import { useChats } from "@/hooks/useChats";
+import { useDocuments } from "@/hooks/useDocuments";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,8 +69,15 @@ function ChatContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const chatId = searchParams.get("id");
-  const { currentUser, chats, documents, addMessageToChat, createChat, renameChat, deleteChat } =
-    useStore();
+  const { currentUser } = useStore();
+  const {
+    chats,
+    createChat: createChatInFirestore,
+    addMessage,
+    renameChat: renameChatInFirestore,
+    removeChat,
+  } = useChats(currentUser?.tenantId, currentUser?.userId);
+  const { documents } = useDocuments(currentUser?.tenantId);
 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -95,21 +104,22 @@ function ChatContent() {
 
     let activeChatId = chatId;
     if (!activeChatId) {
-      activeChatId = createChat(
-        input.substring(0, 40) + (input.length > 40 ? "…" : "")
+      activeChatId = await createChatInFirestore(
+        input.substring(0, 40) + (input.length > 40 ? "…" : ""),
+        currentUser.tenantId,
+        currentUser.userId,
       );
       router.push(`/chat?id=${activeChatId}`);
     }
 
     const userMessage: ChatMessage = { role: "user", content: input };
-    addMessageToChat(activeChatId, userMessage);
+    await addMessage(activeChatId, userMessage);
     const currentInput = input;
     setInput("");
     setIsLoading(true);
 
     try {
-      const latestChats = useStore.getState().chats;
-      const chat = latestChats.find((c) => c.id === activeChatId);
+      const chat = chats.find((c) => c.id === activeChatId);
       const history =
         chat?.messages.map((m) => ({ role: m.role, content: m.content })) ?? [];
 
@@ -118,10 +128,9 @@ function ChatContent() {
         query: currentInput,
         chatHistory: history,
         topK: 15,
-        // Re-hydrate the server's in-memory index from client-persisted chunks
-        // in case the server was restarted since the documents were uploaded.
-        rehydrateChunks: useStore.getState().documents
-          .filter((d) => d.tenantId === currentUser.tenantId && d.status === "indexed" && d.chunks)
+        // Re-hydrate the server's in-memory index from Firestore-persisted chunks.
+        rehydrateChunks: documents
+          .filter((d) => d.status === "indexed" && d.chunks)
           .flatMap((d) =>
             (d.chunks ?? []).map((content) => ({
               documentId: d.id,
@@ -131,14 +140,14 @@ function ChatContent() {
           ),
       });
 
-      addMessageToChat(activeChatId, {
+      await addMessage(activeChatId, {
         role: "model",
         content: response.answer,
         citations: response.citations,
       });
     } catch (error: unknown) {
       console.error("[Chat] Message error:", (error as Error).message);
-      addMessageToChat(activeChatId, {
+      await addMessage(activeChatId, {
         role: "model",
         content:
           "I encountered an error while processing your request. Please try again.",
@@ -148,16 +157,16 @@ function ChatContent() {
     }
   };
 
-  const handleRename = () => {
+  const handleRename = async () => {
     if (currentChat && renameValue.trim()) {
-      renameChat(currentChat.id, renameValue.trim());
+      await renameChatInFirestore(currentChat.id, renameValue.trim());
     }
     setRenameDialogOpen(false);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (currentChat) {
-      deleteChat(currentChat.id);
+      await removeChat(currentChat.id);
       router.push("/chat");
     }
     setDeleteDialogOpen(false);

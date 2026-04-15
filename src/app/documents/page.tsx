@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useStore, DocumentRecord } from "@/lib/store";
+import { useDocuments } from "@/hooks/useDocuments";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -103,8 +104,13 @@ function StatusCell({ doc }: { doc: DocumentRecord }) {
 
 export default function DocumentsPage() {
   const router = useRouter();
-  const { currentUser, documents, addDocument, updateDocumentStatus, deleteDocument } =
-    useStore();
+  const { currentUser } = useStore();
+  const {
+    documents,
+    addDocument: addDocumentToFirestore,
+    updateDocument,
+    removeDocument,
+  } = useDocuments(currentUser?.tenantId);
   const { toast } = useToast();
 
   const [isUploading, setIsUploading] = useState(false);
@@ -144,7 +150,7 @@ export default function DocumentsPage() {
       // Kick off Storage upload and AI processing in parallel.
       // Storage upload is still needed for persistence / retry download.
       const storageRef = ref(storage, `tenants/${currentUser.tenantId}/docs/${docId}/${file.name}`);
-      updateDocumentStatus(docId, "processing");
+      await updateDocument(docId, { status: "processing" });
 
       const [, result] = await Promise.all([
         uploadBytes(storageRef, file),
@@ -161,7 +167,8 @@ export default function DocumentsPage() {
       const processingMs = Date.now() - processingStart;
 
       if (result.status === "processed") {
-        updateDocumentStatus(docId, "indexed", {
+        await updateDocument(docId, {
+          status: "indexed",
           chunkCount: result.chunkCount,
           processingMs,
           chunks: result.chunks,
@@ -171,7 +178,7 @@ export default function DocumentsPage() {
           description: `${file.name} — ${result.chunkCount} chunks in ${(processingMs / 1000).toFixed(1)}s`,
         });
       } else {
-        updateDocumentStatus(docId, "failed", { failureReason: result.message });
+        await updateDocument(docId, { status: "failed", failureReason: result.message });
         toast({ title: "Processing Failed", description: result.message, variant: "destructive" });
       }
     } catch (error: unknown) {
@@ -185,7 +192,7 @@ export default function DocumentsPage() {
         ? "File too large for the current configuration."
         : rawMsg || "Unexpected error.";
       console.error("[Documents] processFile error:", error);
-      updateDocumentStatus(docId, "failed", { failureReason: msg });
+      await updateDocument(docId, { status: "failed", failureReason: msg });
       toast({ title: "Upload Error", description: msg, variant: "destructive" });
     }
   };
@@ -211,7 +218,7 @@ export default function DocumentsPage() {
       .replace("VND.OPENXMLFORMATS-OFFICEDOCUMENT.WORDPROCESSINGML.DOCUMENT", "DOCX")
       .replace("VND.OPENXMLFORMATS-OFFICEDOCUMENT.SPREADSHEETML.SHEET", "XLSX");
 
-    addDocument({
+    await addDocumentToFirestore({
       id: docId,
       tenantId: currentUser.tenantId,
       filename: file.name,
@@ -227,7 +234,7 @@ export default function DocumentsPage() {
 
   const handleRetry = async (doc: DocumentRecord) => {
     setRetryingId(doc.id);
-    updateDocumentStatus(doc.id, "processing", { failureReason: undefined });
+    await updateDocument(doc.id, { status: "processing", failureReason: undefined });
     try {
       const result = await uploadAndProcessDocumentForAIAnalysis({
         tenantId: currentUser.tenantId,
@@ -238,22 +245,22 @@ export default function DocumentsPage() {
         callerRole: currentUser.role,
       });
       if (result.status === "processed") {
-        updateDocumentStatus(doc.id, "indexed", { chunkCount: result.chunkCount, chunks: result.chunks });
+        await updateDocument(doc.id, { status: "indexed", chunkCount: result.chunkCount, chunks: result.chunks });
         toast({ title: "Retry Succeeded", description: `${doc.filename} re-indexed.` });
       } else {
-        updateDocumentStatus(doc.id, "failed", { failureReason: result.message });
+        await updateDocument(doc.id, { status: "failed", failureReason: result.message });
         toast({ title: "Retry Failed", description: result.message, variant: "destructive" });
       }
     } catch (error: unknown) {
       const msg = (error as Error).message ?? "Retry failed.";
-      updateDocumentStatus(doc.id, "failed", { failureReason: msg });
+      await updateDocument(doc.id, { status: "failed", failureReason: msg });
       toast({ title: "Retry Error", description: msg, variant: "destructive" });
     } finally {
       setRetryingId(null);
     }
   };
 
-  const allTenantDocs = documents.filter((d) => d.tenantId === currentUser.tenantId);
+  const allTenantDocs = documents;
 
   const filteredDocs = useMemo(
     () =>
@@ -473,7 +480,7 @@ export default function DocumentsPage() {
                                 className="bg-destructive hover:bg-destructive/90"
                                 onClick={async () => {
                                   await deleteDocumentChunks(doc.id).catch(() => {});
-                                  deleteDocument(doc.id);
+                                  await removeDocument(doc.id);
                                 }}
                               >
                                 Delete

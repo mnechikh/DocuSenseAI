@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
+import { useChats } from "@/hooks/useChats";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -36,9 +37,8 @@ import { revokeSessionCookie } from "@/lib/auth-actions";
 export function DashboardSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, logout, chats, deleteChat } = useStore();
-
-  const tenantChats = chats.filter((c) => c.tenantId === currentUser?.tenantId);
+  const { currentUser, logout } = useStore();
+  const { chats: tenantChats, removeChat } = useChats(currentUser?.tenantId, currentUser?.userId);
 
   const handleLogout = async () => {
     await revokeSessionCookie();
@@ -157,7 +157,7 @@ export function DashboardSidebar() {
                       <button
                         onClick={(e) => {
                           e.preventDefault();
-                          deleteChat(chat.id);
+                          removeChat(chat.id);
                           if (pathname.startsWith("/chat")) router.push("/chat");
                         }}
                         className="p-1 opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:text-red-300 transition-all shrink-0"

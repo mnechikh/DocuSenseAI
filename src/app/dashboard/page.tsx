@@ -1,6 +1,8 @@
 "use client";
 
 import { useStore } from "@/lib/store";
+import { useDocuments } from "@/hooks/useDocuments";
+import { useChats } from "@/hooks/useChats";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   FileText, 
@@ -16,11 +18,9 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
 export default function DashboardPage() {
-  const { currentUser, documents, chats } = useStore();
-
-  // Strictly scope all data to the current tenant to prevent cross-tenant leaks
-  const tenantDocuments = documents.filter(d => d.tenantId === currentUser?.tenantId);
-  const tenantChats = chats.filter(c => c.tenantId === currentUser?.tenantId);
+  const { currentUser } = useStore();
+  const { documents: tenantDocuments } = useDocuments(currentUser?.tenantId);
+  const { chats: tenantChats } = useChats(currentUser?.tenantId, currentUser?.userId);
 
   const stats = [
     { 

@@ -5,6 +5,7 @@
 
 import { ai, mockVectorDb } from '@/ai/genkit';
 import { adminDb } from '@/lib/firebase-admin';
+import { checkAndIncrementQueryQuota } from '@/lib/auth-actions';
 import { z } from 'genkit';
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
@@ -250,6 +251,17 @@ const getAIPoweredAnswersFromDocumentsFlow = ai.defineFlow(
   },
   async (input) => {
     const topK = input.topK ?? 5;
+
+    // ── Query quota gate: atomically check + increment before calling Gemini ──
+    const quotaCheck = await checkAndIncrementQueryQuota(input.tenantId);
+    if (!quotaCheck.allowed) {
+      console.warn('[RAG] Query quota exceeded:', { tenantId: input.tenantId, reason: quotaCheck.reason });
+      return {
+        answer: quotaCheck.reason ?? 'Monthly query limit reached. Please upgrade your plan.',
+        citations: [],
+        hasContext: false,
+      };
+    }
 
     // ── Step 1: Fast-path rehydration from client-persisted chunks.
     // Merges any documentIds the server doesn't already have.

@@ -196,7 +196,7 @@ function ChatContent() {
 
   return (
     <>
-      <div className="flex flex-col h-[calc(100vh-8rem)] max-w-5xl mx-auto bg-white rounded-2xl shadow-xl border border-border/50 overflow-hidden">
+      <div className="flex flex-col h-[calc(100vh-8rem)] max-w-5xl mx-auto bg-card rounded-2xl shadow-xl border border-border overflow-hidden">
         {/* Header */}
         <div className="p-4 border-b bg-primary text-primary-foreground flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -286,15 +286,15 @@ function ChatContent() {
         )}
 
         {/* Messages */}
-        <ScrollArea className="flex-1 p-4 md:p-6">
+        <ScrollArea className="flex-1 p-4 md:p-6 bg-background/40">
           <div className="space-y-6 pb-4">
             {!currentChat?.messages.length && !isLoading && (
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-                <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center">
-                  <Bot className="w-8 h-8 text-accent" />
+                <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center">
+                  <Bot className="w-8 h-8 text-primary" />
                 </div>
                 <div className="max-w-md">
-                  <h3 className="text-xl font-bold text-primary">
+                  <h3 className="text-xl font-bold text-foreground">
                     How can I help you today?
                   </h3>
                   <p className="text-sm text-muted-foreground mt-2">
@@ -355,10 +355,10 @@ function ChatContent() {
                 >
                   <div
                     className={cn(
-                      "p-4 rounded-2xl text-sm leading-relaxed shadow-sm border whitespace-pre-wrap",
+                      "p-4 rounded-2xl text-sm leading-relaxed shadow-sm whitespace-pre-wrap",
                       message.role === "user"
-                        ? "bg-primary/5 border-primary/10 rounded-tr-none"
-                        : "bg-muted/50 border-muted rounded-tl-none"
+                        ? "bg-primary text-primary-foreground rounded-tr-none"
+                        : "bg-secondary text-secondary-foreground border border-border rounded-tl-none"
                     )}
                   >
                     {message.content}
@@ -372,7 +372,7 @@ function ChatContent() {
                       {message.citations.map((cite, cIdx) => (
                         <div
                           key={cIdx}
-                          className="flex items-center gap-1.5 px-2 py-1 bg-white border border-border/50 rounded-md text-[10px] font-medium text-muted-foreground shadow-sm hover:border-accent transition-colors"
+                          className="flex items-center gap-1.5 px-2 py-1 bg-card border border-border rounded-md text-[10px] font-medium text-muted-foreground shadow-sm hover:border-primary/50 transition-colors"
                           title={cite.pageSection}
                         >
                           <FileText className="w-3 h-3 text-accent shrink-0" />
@@ -395,7 +395,7 @@ function ChatContent() {
                 <div className="w-8 h-8 rounded-full bg-accent text-accent-foreground flex items-center justify-center shrink-0">
                   <Bot className="w-4 h-4" />
                 </div>
-                <div className="p-4 rounded-2xl bg-muted/50 border border-muted rounded-tl-none">
+                <div className="p-4 rounded-2xl bg-secondary border border-border rounded-tl-none">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="w-4 h-4 animate-spin text-primary" />
                     <span>Retrieving from documents…</span>
@@ -409,7 +409,7 @@ function ChatContent() {
         </ScrollArea>
 
         {/* Input bar */}
-        <div className="p-4 border-t bg-white shrink-0">
+        <div className="p-4 border-t border-border bg-card shrink-0">
           <form onSubmit={handleSendMessage} className="flex gap-2">
             <Input
               value={input}

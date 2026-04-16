@@ -3,7 +3,12 @@
 import { useStore } from "@/lib/store";
 import { useDocuments } from "@/hooks/useDocuments";
 import { useChats } from "@/hooks/useChats";
+import { useEffect, useState } from "react";
+import { getMyTenantQuota } from "@/lib/auth-actions";
+import { type TenantPlan } from "@/lib/quota-constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { 
   FileText, 
   MessageSquare, 
@@ -12,15 +17,31 @@ import {
   TrendingUp, 
   CheckCircle2, 
   AlertCircle,
-  Clock
+  Clock,
+  Gauge,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+
+type QuotaInfo = {
+  plan: TenantPlan;
+  docQuota: number;
+  queryQuota: number;
+  queriesThisMonth: number;
+  quotaResetAt: number;
+};
 
 export default function DashboardPage() {
   const { currentUser } = useStore();
   const { documents: tenantDocuments } = useDocuments(currentUser?.tenantId);
   const { chats: tenantChats } = useChats(currentUser?.tenantId, currentUser?.userId);
+  const [quota, setQuota] = useState<QuotaInfo | null>(null);
+
+  useEffect(() => {
+    getMyTenantQuota().then(setQuota).catch(() => {});
+  }, []);
+
+  const docCount = tenantDocuments.filter(d => d.status !== "failed").length;
 
   const stats = [
     { 
@@ -90,6 +111,44 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* ── Quota usage bar ── */}
+      {quota && (
+        <Card className="border-none shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <div className="flex items-center gap-2">
+              <Gauge className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Usage — this month</CardTitle>
+            </div>
+            <Badge variant="outline" className="capitalize text-xs">{quota.plan} plan</Badge>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-2">
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Documents</span>
+                <span>{docCount} / {quota.docQuota}</span>
+              </div>
+              <Progress
+                value={quota.docQuota > 0 ? Math.min(100, Math.round((docCount / quota.docQuota) * 100)) : 0}
+                className="h-2"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>AI Queries</span>
+                <span>{quota.queriesThisMonth} / {quota.queryQuota}</span>
+              </div>
+              <Progress
+                value={quota.queryQuota > 0 ? Math.min(100, Math.round((quota.queriesThisMonth / quota.queryQuota) * 100)) : 0}
+                className="h-2"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Resets {new Date(quota.quotaResetAt).toLocaleDateString()}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <Card className="border-none shadow-sm">

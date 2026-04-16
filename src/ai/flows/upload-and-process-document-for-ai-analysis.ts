@@ -5,6 +5,7 @@
 
 import { ai, mockVectorDb } from '@/ai/genkit';
 import { adminDb } from '@/lib/firebase-admin';
+import { checkDocumentQuota } from '@/lib/auth-actions';
 import { z } from 'genkit';
 
 // ─── Text extraction ──────────────────────────────────────────────────────────
@@ -190,6 +191,17 @@ const uploadAndProcessDocumentFlow = ai.defineFlow(
         documentId,
         status: 'failed' as const,
         message: 'Forbidden: only administrators can upload documents.',
+      };
+    }
+
+    // ── Document quota check ──
+    const quotaCheck = await checkDocumentQuota(tenantId);
+    if (!quotaCheck.allowed) {
+      console.warn('[Ingestion] Document quota exceeded:', { tenantId, reason: quotaCheck.reason });
+      return {
+        documentId,
+        status: 'failed' as const,
+        message: quotaCheck.reason ?? 'Document quota exceeded.',
       };
     }
 

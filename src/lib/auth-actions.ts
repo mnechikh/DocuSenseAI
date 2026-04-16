@@ -2,6 +2,7 @@
 
 import { adminAuth, adminDb, isSuperAdmin } from "@/lib/firebase-admin";
 import { cookies } from "next/headers";
+import { PLAN_DEFAULTS, nextResetTs, type TenantPlan } from "@/lib/quota-constants";
 
 const SESSION_COOKIE_NAME = "docusense_session";
 const SESSION_DURATION_MS = 60 * 60 * 24 * 14 * 1000; // 14 days
@@ -90,6 +91,7 @@ export async function createTenant(
   tenantName: string,
   ownerId: string
 ) {
+  const defaults = PLAN_DEFAULTS.free;
   await adminDb.doc(`tenants/${tenantId}`).set({
     name: tenantName,
     ownerId,
@@ -97,6 +99,13 @@ export async function createTenant(
     createdAt: Date.now(),
     stripeCustomerId: null,
     paidAt: null,
+    // Quota fields — defaulting to free tier
+    plan: "free" as TenantPlan,
+    docQuota: defaults.docQuota,
+    queryQuota: defaults.queryQuota,
+    storageMB: defaults.storageMB,
+    queriesThisMonth: 0,
+    quotaResetAt: nextResetTs(),
   });
 }
 
@@ -130,6 +139,13 @@ export async function getAllTenants() {
     userCount: number;
     stripeCustomerId: string | null;
     paidAt: number | null;
+    // quota fields (may be absent on old tenants — default gracefully in UI)
+    plan: TenantPlan;
+    docQuota: number;
+    queryQuota: number;
+    storageMB: number;
+    queriesThisMonth: number;
+    quotaResetAt: number;
   }>;
 }
 
@@ -149,6 +165,135 @@ export async function suspendTenant(tenantId: string) {
   const usersSnap = await adminDb.collection("users").where("tenantId", "==", tenantId).get();
   usersSnap.forEach((doc) => batch.update(doc.ref, { status: "suspended" }));
   await batch.commit();
+}
+
+// ─── Quota management (super-admin) ──────────────────────────────────────────
+
+export async function getTenantQuota(tenantId: string) {
+  await requireSuperAdmin();
+  const snap = await adminDb.doc(`tenants/${tenantId}`).get();
+  if (!snap.exists) throw new Error("Tenant not found.");
+  const data = snap.data() as Record<string, unknown>;
+  const plan = (data.plan as TenantPlan) ?? "free";
+  const defaults = PLAN_DEFAULTS[plan] ?? PLAN_DEFAULTS.free;
+  return {
+    plan,
+    docQuota:         (data.docQuota         as number) ?? defaults.docQuota,
+    queryQuota:       (data.queryQuota       as number) ?? defaults.queryQuota,
+    storageMB:        (data.storageMB        as number) ?? defaults.storageMB,
+    queriesThisMonth: (data.queriesThisMonth as number) ?? 0,
+    quotaResetAt:     (data.quotaResetAt     as number) ?? nextResetTs(),
+  };
+}
+
+export async function setTenantQuota(
+  tenantId: string,
+  plan: TenantPlan,
+  overrides?: { docQuota?: number; queryQuota?: number; storageMB?: number }
+) {
+  await requireSuperAdmin();
+  const defaults = PLAN_DEFAULTS[plan];
+  await adminDb.doc(`tenants/${tenantId}`).update({
+    plan,
+    docQuota:   overrides?.docQuota   ?? defaults.docQuota,
+    queryQuota: overrides?.queryQuota ?? defaults.queryQuota,
+    storageMB:  overrides?.storageMB  ?? defaults.storageMB,
+  });
+}
+
+export async function resetTenantQueryCount(tenantId: string) {
+  await requireSuperAdmin();
+  await adminDb.doc(`tenants/${tenantId}`).update({
+    queriesThisMonth: 0,
+    quotaResetAt: nextResetTs(),
+  });
+}
+
+// ─── Quota enforcement helpers (called from AI server actions) ────────────────
+
+/**
+ * Check and atomically increment the monthly query counter.
+ * Returns { allowed: true } or { allowed: false, reason: string }.
+ */
+export async function checkAndIncrementQueryQuota(
+  tenantId: string
+): Promise<{ allowed: boolean; reason?: string }> {
+  const ref = adminDb.doc(`tenants/${tenantId}`);
+  return adminDb.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { allowed: false, reason: "Tenant not found." };
+    const data = snap.data() as Record<string, unknown>;
+    const queryQuota = (data.queryQuota       as number) ?? 50;
+    let   count      = (data.queriesThisMonth as number) ?? 0;
+    const resetAt    = (data.quotaResetAt     as number) ?? 0;
+    // Auto-reset counter at start of new billing month
+    if (Date.now() >= resetAt) {
+      count = 0;
+      tx.update(ref, { queriesThisMonth: 0, quotaResetAt: nextResetTs() });
+    }
+    if (count >= queryQuota) {
+      return { allowed: false, reason: `Monthly query limit reached (${queryQuota}). Please upgrade your plan.` };
+    }
+    tx.update(ref, { queriesThisMonth: count + 1 });
+    return { allowed: true };
+  });
+}
+
+/**
+ * Check whether adding a new document would exceed the tenant's docQuota.
+ * Does NOT increment — caller must create the document record separately.
+ */
+export async function checkDocumentQuota(
+  tenantId: string
+): Promise<{ allowed: boolean; reason?: string }> {
+  const snap = await adminDb.doc(`tenants/${tenantId}`).get();
+  if (!snap.exists) return { allowed: false, reason: "Tenant not found." };
+  const data = snap.data() as Record<string, unknown>;
+  const docQuota = (data.docQuota as number) ?? 5;
+  // Count indexed + processing docs (not failed/uploaded-only)
+  const countSnap = await adminDb
+    .collection("documents")
+    .where("tenantId", "==", tenantId)
+    .where("status", "in", ["uploaded", "processing", "indexed"])
+    .count()
+    .get();
+  const current = countSnap.data().count;
+  if (current >= docQuota) {
+    return {
+      allowed: false,
+      reason: `Document quota reached (${current}/${docQuota}). Please upgrade your plan or delete unused documents.`,
+    };
+  }
+  return { allowed: true };
+}
+
+/**
+ * Returns quota status for the currently authenticated tenant.
+ * Callable by any authenticated user belonging to the tenant.
+ */
+export async function getMyTenantQuota(): Promise<{
+  plan: TenantPlan;
+  docQuota: number;
+  queryQuota: number;
+  storageMB: number;
+  queriesThisMonth: number;
+  quotaResetAt: number;
+}> {
+  const user = await getSessionUser();
+  if (!user?.tenantId) throw new Error("Not authenticated.");
+  const snap = await adminDb.doc(`tenants/${user.tenantId}`).get();
+  if (!snap.exists) throw new Error("Tenant not found.");
+  const data = snap.data() as Record<string, unknown>;
+  const plan = (data.plan as TenantPlan) ?? "free";
+  const defaults = PLAN_DEFAULTS[plan] ?? PLAN_DEFAULTS.free;
+  return {
+    plan,
+    docQuota:         (data.docQuota         as number) ?? defaults.docQuota,
+    queryQuota:       (data.queryQuota       as number) ?? defaults.queryQuota,
+    storageMB:        (data.storageMB        as number) ?? defaults.storageMB,
+    queriesThisMonth: (data.queriesThisMonth as number) ?? 0,
+    quotaResetAt:     (data.quotaResetAt     as number) ?? nextResetTs(),
+  };
 }
 
 // ─── Invite Tokens ────────────────────────────────────────────────────────────

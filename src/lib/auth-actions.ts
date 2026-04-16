@@ -201,13 +201,18 @@ export async function createTenantAsAdmin(
 ): Promise<{ tenantId: string; resetLink: string | null }> {
   await requireSuperAdmin();
 
-  // Slug the workspace name into a stable tenantId
-  const base = workspaceName
+  // Slug the workspace name into a readable tenantId, with collision counter
+  const slug = workspaceName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
-  const tenantId = `${base}-${Date.now().toString(36)}`;
+  let tenantId = slug;
+  let suffix = 1;
+  while ((await adminDb.doc(`tenants/${tenantId}`).get()).exists) {
+    suffix += 1;
+    tenantId = `${slug}-${suffix}`;
+  }
 
   // Find or create the owner Firebase Auth account
   let ownerUid: string;

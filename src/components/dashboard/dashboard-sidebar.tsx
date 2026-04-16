@@ -34,11 +34,15 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { revokeSessionCookie } from "@/lib/auth-actions";
 
-export function DashboardSidebar() {
+export function DashboardSidebar({ claimsReady }: { claimsReady: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const { currentUser, logout } = useStore();
-  const { chats: tenantChats, removeChat } = useChats(currentUser?.tenantId, currentUser?.userId);
+  // Only register the Firestore listener once the Auth token carries custom claims.
+  const { chats: tenantChats, removeChat } = useChats(
+    claimsReady ? currentUser?.tenantId : undefined,
+    claimsReady ? currentUser?.userId : undefined,
+  );
 
   const handleLogout = async () => {
     await revokeSessionCookie();

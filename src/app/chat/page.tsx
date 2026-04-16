@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, Suspense } from "react";
 import { useStore, ChatMessage } from "@/lib/store";
 import { useChats } from "@/hooks/useChats";
 import { useDocuments } from "@/hooks/useDocuments";
+import { auth } from "@/lib/firebase";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,21 +73,37 @@ function ChatContent() {
   const searchParams = useSearchParams();
   const chatId = searchParams.get("id");
   const { currentUser } = useStore();
+
+  // Ensure the Firebase Auth token carries the tenantId custom claim before
+  // any Firestore operation.  DashboardLayout does this for /dashboard/** routes,
+  // but /chat is a separate layout tree and needs its own guard.
+  const [claimsReady, setClaimsReady] = useState(false);
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) { setClaimsReady(true); return; }
+    user.getIdTokenResult().then(async (result) => {
+      if (!result.claims.tenantId) await user.getIdToken(true);
+      setClaimsReady(true);
+    });
+  }, []);
+
   const {
     chats,
     createChat: createChatInFirestore,
     addMessage,
     renameChat: renameChatInFirestore,
     removeChat,
-  } = useChats(currentUser?.tenantId, currentUser?.userId);
-  const { documents } = useDocuments(currentUser?.tenantId);
+  } = useChats(claimsReady ? currentUser?.tenantId : undefined, claimsReady ? currentUser?.userId : undefined);
+  const { documents } = useDocuments(claimsReady ? currentUser?.tenantId : undefined);
 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
+  // Sentinel element at the bottom of the message list — scrolling it into
+  // view is more reliable than manipulating scrollTop on the ScrollArea wrapper.
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const currentChat = chats.find((c) => c.id === chatId);
   const tenantDocs = documents.filter(
@@ -95,9 +112,7 @@ function ChatContent() {
   const hasIndexedDocs = tenantDocs.length > 0;
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [currentChat?.messages, isLoading]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -271,7 +286,7 @@ function ChatContent() {
         )}
 
         {/* Messages */}
-        <ScrollArea className="flex-1 p-4 md:p-6" ref={scrollRef}>
+        <ScrollArea className="flex-1 p-4 md:p-6">
           <div className="space-y-6 pb-4">
             {!currentChat?.messages.length && !isLoading && (
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
@@ -388,6 +403,8 @@ function ChatContent() {
                 </div>
               </div>
             )}
+            {/* Sentinel — keep at end so scroll always lands here */}
+            <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
 

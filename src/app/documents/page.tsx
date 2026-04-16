@@ -120,6 +120,27 @@ export default function DocumentsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<DocumentRecord["status"] | "all">("all");
 
+  const allTenantDocs = documents;
+
+  const filteredDocs = useMemo(
+    () =>
+      allTenantDocs.filter((doc) => {
+        const matchSearch =
+          searchQuery === "" ||
+          doc.filename.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchStatus = statusFilter === "all" || doc.status === statusFilter;
+        return matchSearch && matchStatus;
+      }),
+    [allTenantDocs, searchQuery, statusFilter]
+  );
+
+  const counts = {
+    total: allTenantDocs.length,
+    indexed: allTenantDocs.filter((d) => d.status === "indexed").length,
+    processing: allTenantDocs.filter((d) => d.status === "processing").length,
+    failed: allTenantDocs.filter((d) => d.status === "failed").length,
+  };
+
   if (currentUser?.role !== "Admin") {
     return (
       <div className="flex flex-col items-center justify-center h-[50vh] text-center p-6">
@@ -200,37 +221,46 @@ export default function DocumentsPage() {
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const fileList = e.target.files;
     e.target.value = "";
-    if (!file) return;
+    if (!fileList || fileList.length === 0) return;
 
-    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      toast({ title: "File too large", description: `Max ${MAX_FILE_SIZE_MB} MB.`, variant: "destructive" });
-      return;
+    const files = Array.from(fileList);
+    const validEntries: { file: File; docId: string }[] = [];
+
+    for (const file of files) {
+      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        toast({ title: "File too large", description: `${file.name}: max ${MAX_FILE_SIZE_MB} MB.`, variant: "destructive" });
+        continue;
+      }
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        toast({ title: "Unsupported file type", description: `${file.name}: supported formats are PDF, DOCX, TXT, CSV, XLSX.`, variant: "destructive" });
+        continue;
+      }
+
+      const docId = crypto.randomUUID();
+      const readableType = file.type
+        .split("/")[1]
+        .toUpperCase()
+        .replace("VND.OPENXMLFORMATS-OFFICEDOCUMENT.WORDPROCESSINGML.DOCUMENT", "DOCX")
+        .replace("VND.OPENXMLFORMATS-OFFICEDOCUMENT.SPREADSHEETML.SHEET", "XLSX");
+
+      await addDocumentToFirestore({
+        id: docId,
+        tenantId: currentUser.tenantId,
+        filename: file.name,
+        fileType: readableType,
+        status: "uploaded",
+        timestamp: Date.now(),
+      });
+
+      validEntries.push({ file, docId });
     }
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      toast({ title: "Unsupported file type", description: "Supported: PDF, DOCX, TXT, CSV, XLSX.", variant: "destructive" });
-      return;
-    }
 
-    const docId = crypto.randomUUID();
-    const readableType = file.type
-      .split("/")[1]
-      .toUpperCase()
-      .replace("VND.OPENXMLFORMATS-OFFICEDOCUMENT.WORDPROCESSINGML.DOCUMENT", "DOCX")
-      .replace("VND.OPENXMLFORMATS-OFFICEDOCUMENT.SPREADSHEETML.SHEET", "XLSX");
-
-    await addDocumentToFirestore({
-      id: docId,
-      tenantId: currentUser.tenantId,
-      filename: file.name,
-      fileType: readableType,
-      status: "uploaded",
-      timestamp: Date.now(),
-    });
+    if (validEntries.length === 0) return;
 
     setIsUploading(true);
-    await processFile(file, docId);
+    await Promise.all(validEntries.map(({ file, docId }) => processFile(file, docId)));
     setIsUploading(false);
   };
 
@@ -260,27 +290,6 @@ export default function DocumentsPage() {
     } finally {
       setRetryingId(null);
     }
-  };
-
-  const allTenantDocs = documents;
-
-  const filteredDocs = useMemo(
-    () =>
-      allTenantDocs.filter((doc) => {
-        const matchSearch =
-          searchQuery === "" ||
-          doc.filename.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchStatus = statusFilter === "all" || doc.status === statusFilter;
-        return matchSearch && matchStatus;
-      }),
-    [allTenantDocs, searchQuery, statusFilter]
-  );
-
-  const counts = {
-    total: allTenantDocs.length,
-    indexed: allTenantDocs.filter((d) => d.status === "indexed").length,
-    processing: allTenantDocs.filter((d) => d.status === "processing").length,
-    failed: allTenantDocs.filter((d) => d.status === "failed").length,
   };
 
   return (
@@ -322,6 +331,7 @@ export default function DocumentsPage() {
               onChange={handleFileUpload}
               disabled={isUploading}
               accept=".pdf,.docx,.txt,.csv,.xlsx"
+              multiple
             />
             <Button asChild className="bg-primary hover:bg-primary/90 shadow-md" disabled={isUploading}>
               <label
@@ -333,7 +343,7 @@ export default function DocumentsPage() {
                 ) : (
                   <Plus className="mr-2 h-4 w-4" />
                 )}
-                {isUploading ? "Uploading…" : "Add Document"}
+                {isUploading ? "Uploading…" : "Add Documents"}
               </label>
             </Button>
           </div>

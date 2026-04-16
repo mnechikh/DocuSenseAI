@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   collection, query, where, orderBy, onSnapshot,
-  addDoc, updateDoc, deleteDoc, doc, arrayUnion, serverTimestamp
+  addDoc, updateDoc, deleteDoc, doc, arrayUnion
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { ChatSession, ChatMessage } from "@/lib/store";
@@ -28,6 +28,18 @@ export function useChats(tenantId: string | undefined, userId: string | undefine
     }, (err) => {
       console.error("[useChats] snapshot error:", err);
       setLoading(false);
+      // The Firestore SDK can enter an unrecoverable internal state after a
+      // permission error on a live listener.  Terminate the client and hard-
+      // reload so it restarts cleanly with a fresh token.
+      if (err.message?.includes('INTERNAL ASSERTION FAILED') ||
+          err.code === 'permission-denied' ||
+          err.message?.includes('Missing or insufficient permissions')) {
+        import('@/lib/firebase').then(({ db }) => {
+          import('firebase/firestore').then(({ terminate }) => {
+            terminate(db).catch(() => {}).finally(() => window.location.reload());
+          });
+        });
+      }
     });
 
     return unsub;
@@ -45,8 +57,11 @@ export function useChats(tenantId: string | undefined, userId: string | undefine
   };
 
   const addMessage = async (chatId: string, message: ChatMessage) => {
+    // Firestore rejects undefined field values (e.g. citations with no pageSection).
+    // JSON round-trip strips all undefined keys before the write.
+    const safeMessage = JSON.parse(JSON.stringify(message));
     await updateDoc(doc(db, "chats", chatId), {
-      messages: arrayUnion(message),
+      messages: arrayUnion(safeMessage),
       updatedAt: Date.now(),
     });
   };

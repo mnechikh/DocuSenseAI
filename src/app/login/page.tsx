@@ -31,6 +31,8 @@ export default function LoginPage() {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       const idToken = await cred.user.getIdToken();
       await createSessionCookie(idToken);
+      // Force token refresh so Firestore picks up the new custom claims (tenantId/role)
+      await cred.user.getIdToken(true);
 
       // Fetch user profile from Firestore via server action
       const { getSessionUser } = await import("@/lib/auth-actions");

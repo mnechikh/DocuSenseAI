@@ -10,6 +10,15 @@ const INVITE_EXPIRY_MS = 60 * 60 * 24 * 7 * 1000; // 7 days
 // ─── Session ──────────────────────────────────────────────────────────────────
 
 export async function createSessionCookie(idToken: string) {
+  // Verify the token to get the uid, then stamp tenantId + role as custom claims
+  // so Firestore security rules can use request.auth.token.tenantId directly.
+  const decoded = await adminAuth.verifyIdToken(idToken);
+  const userSnap = await adminDb.doc(`users/${decoded.uid}`).get();
+  if (userSnap.exists) {
+    const { tenantId, role } = userSnap.data() as { tenantId: string; role: string };
+    await adminAuth.setCustomUserClaims(decoded.uid, { tenantId, role });
+  }
+
   const sessionCookie = await adminAuth.createSessionCookie(idToken, {
     expiresIn: SESSION_DURATION_MS,
   });

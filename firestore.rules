@@ -1,21 +1,43 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // chunks collection is read/written server-side only (firebase-admin SDK)
-    // Deny all direct client access for security.
+
+    // chunks — server-side admin SDK only
     match /chunks/{docId} {
       allow read, write: if false;
     }
 
-    // users, tenants, invites — server-side only via admin SDK
+    // users — each authenticated user may read their own profile; writes via admin SDK only
     match /users/{uid} {
-      allow read, write: if false;
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
     }
+
+    // tenants, invites — admin SDK only
     match /tenants/{tenantId} {
       allow read, write: if false;
     }
     match /invites/{inviteId} {
       allow read, write: if false;
+    }
+
+    // documents — authenticated users can CRUD documents within their own tenant
+    // tenantId is carried as a custom claim set at login time
+    match /documents/{docId} {
+      allow read, update, delete: if request.auth != null
+        && request.auth.token.tenantId == resource.data.tenantId;
+      allow create: if request.auth != null
+        && request.auth.token.tenantId == request.resource.data.tenantId;
+    }
+
+    // chats — authenticated users can CRUD their own chats within their tenant
+    match /chats/{chatId} {
+      allow read, update, delete: if request.auth != null
+        && request.auth.uid == resource.data.userId
+        && request.auth.token.tenantId == resource.data.tenantId;
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.userId
+        && request.auth.token.tenantId == request.resource.data.tenantId;
     }
   }
 }

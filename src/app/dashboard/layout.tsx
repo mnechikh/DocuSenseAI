@@ -3,27 +3,41 @@
 export const dynamic = 'force-dynamic';
 
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "@/lib/store";
+import { auth } from "@/lib/firebase";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { currentUser } = useStore();
+  // Gate rendering until the Firebase Auth token has the tenantId custom claim.
+  // Old sessions (from before claims were added) need a force-refresh.
+  const [claimsReady, setClaimsReady] = useState(false);
 
   useEffect(() => {
     if (!currentUser) {
       router.push("/login");
+      return;
     }
+    const user = auth.currentUser;
+    if (!user) { setClaimsReady(true); return; }
+    user.getIdTokenResult().then(async (result) => {
+      if (!result.claims.tenantId) {
+        // Token predates custom claims — force a refresh to pick them up.
+        await user.getIdToken(true);
+      }
+      setClaimsReady(true);
+    });
   }, [currentUser, router]);
 
-  if (!currentUser) return null;
+  if (!currentUser || !claimsReady) return null;
 
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-background overflow-hidden">
-        <DashboardSidebar />
+        <DashboardSidebar claimsReady={claimsReady} />
         <SidebarInset className="flex-1 overflow-auto">
           <main className="h-full p-4 md:p-8">
             {children}

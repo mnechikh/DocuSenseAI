@@ -23,3 +23,5 @@ env:
     value: 1:662767184869:web:739111c2562f57e823dd0c
   - variable: OWNER_UID
     value: t0H9YhciYvRRdyN3CniRb3fCaYg1
+  - variable: NEXT_PUBLIC_APP_URL
+    value: https://lumxia--studio-5790176463-f6e8c.us-east4.hosted.app

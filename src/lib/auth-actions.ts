@@ -170,6 +170,24 @@ export async function suspendTenant(tenantId: string) {
 // ─── Tenant CRUD (super-admin) ────────────────────────────────────────────────
 
 /**
+ * Rewrites a Firebase password-reset link to use the app's own domain,
+ * hiding the Firebase project URL from recipients.
+ * Input:  https://xxx.firebaseapp.com/__/auth/action?mode=resetPassword&oobCode=ABC&...
+ * Output: https://your-app.com/set-password?oobCode=ABC
+ */
+function toAppResetLink(firebaseLink: string): string {
+  try {
+    const parsed = new URL(firebaseLink);
+    const oobCode = parsed.searchParams.get("oobCode");
+    if (!oobCode) return firebaseLink; // fallback to raw link
+    const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+    return `${base}/set-password?oobCode=${encodeURIComponent(oobCode)}`;
+  } catch {
+    return firebaseLink;
+  }
+}
+
+/**
  * Create a workspace from the admin panel.
  * If a Firebase Auth account for ownerEmail already exists, it is reused.
  * Otherwise a new account is created and a password-reset email is sent so
@@ -237,7 +255,8 @@ export async function createTenantAsAdmin(
   // Generate reset link for new accounts so the admin can share it
   if (isNewAccount) {
     try {
-      resetLink = await adminAuth.generatePasswordResetLink(ownerEmail);
+      const raw = await adminAuth.generatePasswordResetLink(ownerEmail);
+      resetLink = toAppResetLink(raw);
     } catch {
       // non-fatal — admin can use the per-row button to generate one
     }
@@ -265,7 +284,8 @@ export async function getOwnerResetLink(tenantId: string): Promise<string> {
   const userSnap = await adminDb.doc(`users/${ownerId}`).get();
   if (!userSnap.exists) throw new Error("Owner profile not found.");
   const { email } = userSnap.data() as { email: string };
-  return adminAuth.generatePasswordResetLink(email);
+  const raw = await adminAuth.generatePasswordResetLink(email);
+  return toAppResetLink(raw);
 }
 
 /**

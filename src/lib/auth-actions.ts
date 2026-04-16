@@ -167,6 +167,132 @@ export async function suspendTenant(tenantId: string) {
   await batch.commit();
 }
 
+// ─── Tenant CRUD (super-admin) ────────────────────────────────────────────────
+
+/**
+ * Create a workspace from the admin panel.
+ * If a Firebase Auth account for ownerEmail already exists, it is reused.
+ * Otherwise a new account is created and a password-reset email is sent so
+ * the owner can set their own password.
+ * Returns the new tenantId.
+ */
+export async function createTenantAsAdmin(
+  workspaceName: string,
+  ownerEmail: string
+): Promise<string> {
+  await requireSuperAdmin();
+
+  // Slug the workspace name into a stable tenantId
+  const base = workspaceName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  const tenantId = `${base}-${Date.now().toString(36)}`;
+
+  // Find or create the owner Firebase Auth account
+  let ownerUid: string;
+  try {
+    const existing = await adminAuth.getUserByEmail(ownerEmail);
+    ownerUid = existing.uid;
+  } catch {
+    const created = await adminAuth.createUser({ email: ownerEmail });
+    ownerUid = created.uid;
+    // Send password-reset email so the owner can log in
+    try {
+      const link = await adminAuth.generatePasswordResetLink(ownerEmail);
+      console.info(`[Admin] Password reset link for ${ownerEmail}: ${link}`);
+    } catch (emailErr) {
+      console.warn("[Admin] Could not generate password reset link:", emailErr);
+    }
+  }
+
+  // Write tenant + owner user profile in a batch
+  const batch = adminDb.batch();
+  const defaults = PLAN_DEFAULTS.free;
+  batch.set(adminDb.doc(`tenants/${tenantId}`), {
+    name: workspaceName,
+    ownerId: ownerUid,
+    status: "active",
+    createdAt: Date.now(),
+    stripeCustomerId: null,
+    paidAt: null,
+    plan: "free" as TenantPlan,
+    docQuota: defaults.docQuota,
+    queryQuota: defaults.queryQuota,
+    storageMB: defaults.storageMB,
+    queriesThisMonth: 0,
+    quotaResetAt: nextResetTs(),
+  });
+  batch.set(adminDb.doc(`users/${ownerUid}`), {
+    email: ownerEmail,
+    name: ownerEmail.split("@")[0],
+    tenantId,
+    role: "Admin",
+    status: "active",
+    createdAt: Date.now(),
+  }, { merge: true });
+  await batch.commit();
+
+  // Stamp custom claims so Firestore rules work immediately
+  await adminAuth.setCustomUserClaims(ownerUid, { tenantId, role: "Admin" });
+
+  return tenantId;
+}
+
+export async function renameTenant(tenantId: string, newName: string) {
+  await requireSuperAdmin();
+  const name = newName.trim();
+  if (!name) throw new Error("Workspace name cannot be empty.");
+  await adminDb.doc(`tenants/${tenantId}`).update({ name });
+}
+
+/**
+ * Hard-delete a workspace and all its data:
+ * users, documents, chunks, invites, and the tenant document itself.
+ * Firebase Auth accounts are NOT deleted — only suspended in Firestore.
+ */
+export async function deleteTenant(tenantId: string) {
+  await requireSuperAdmin();
+
+  // 1. Suspend + collect all user UIDs
+  const usersSnap = await adminDb.collection("users").where("tenantId", "==", tenantId).get();
+  const userBatch = adminDb.batch();
+  const uids: string[] = [];
+  usersSnap.forEach((d) => { userBatch.delete(d.ref); uids.push(d.id); });
+  if (usersSnap.size > 0) await userBatch.commit();
+
+  // Revoke refresh tokens so sessions are instantly invalidated
+  await Promise.allSettled(uids.map((uid) => adminAuth.revokeRefreshTokens(uid)));
+
+  // 2. Delete documents
+  const docsSnap = await adminDb.collection("documents").where("tenantId", "==", tenantId).get();
+  const docBatch = adminDb.batch();
+  docsSnap.forEach((d) => docBatch.delete(d.ref));
+  if (docsSnap.size > 0) await docBatch.commit();
+
+  // 3. Delete chunk docs (stored as chunks/{tenantId}_{documentId})
+  const chunksSnap = await adminDb.collection("chunks")
+    .where("tenantId", "==", tenantId)
+    .get();
+  if (chunksSnap.size > 0) {
+    const chunkBatch = adminDb.batch();
+    chunksSnap.forEach((d) => chunkBatch.delete(d.ref));
+    await chunkBatch.commit();
+  }
+
+  // 4. Delete invites
+  const invitesSnap = await adminDb.collection("invites").where("tenantId", "==", tenantId).get();
+  if (invitesSnap.size > 0) {
+    const invBatch = adminDb.batch();
+    invitesSnap.forEach((d) => invBatch.delete(d.ref));
+    await invBatch.commit();
+  }
+
+  // 5. Delete the tenant document itself
+  await adminDb.doc(`tenants/${tenantId}`).delete();
+}
+
 // ─── Quota management (super-admin) ──────────────────────────────────────────
 
 export async function getTenantQuota(tenantId: string) {

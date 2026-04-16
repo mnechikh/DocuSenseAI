@@ -6,6 +6,7 @@ import { useStore } from "@/lib/store";
 import {
   getAllTenants, approveTenant, suspendTenant,
   setTenantQuota, resetTenantQueryCount,
+  createTenantAsAdmin, renameTenant, deleteTenant,
 } from "@/lib/auth-actions";
 import { PLAN_DEFAULTS, type TenantPlan } from "@/lib/quota-constants";
 import { Button } from "@/components/ui/button";
@@ -14,11 +15,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Shield, CheckCircle2, XCircle, Users, Building2, Clock, Loader2, RefreshCw, LogOut, Settings2, RotateCcw } from "lucide-react";
+import { Shield, CheckCircle2, XCircle, Users, Building2, Clock, Loader2, RefreshCw, LogOut, Settings2, RotateCcw, Plus, Pencil, Trash2 } from "lucide-react";
 import { revokeSessionCookie } from "@/lib/auth-actions";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -143,6 +145,70 @@ export default function AdminPage() {
     }
   };
 
+  // ── Create workspace modal ─────────────────────────────────────────────────
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createEmail, setCreateEmail] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+
+  const handleCreate = async () => {
+    if (!createName.trim() || !createEmail.trim()) return;
+    setCreating(true);
+    setCreateError("");
+    try {
+      const tenantId = await createTenantAsAdmin(createName.trim(), createEmail.trim());
+      setCreateOpen(false);
+      setCreateName("");
+      setCreateEmail("");
+      await load(); // refresh to get userCount etc.
+    } catch (e: unknown) {
+      setCreateError((e as Error).message ?? "Failed to create workspace.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  // ── Inline rename ──────────────────────────────────────────────────────────
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const startRename = (t: Tenant) => {
+    setRenamingId(t.id);
+    setRenameValue(t.name);
+  };
+
+  const commitRename = async (tenantId: string) => {
+    try {
+      await renameTenant(tenantId, renameValue);
+      setTenants((prev) => prev.map((t) => t.id === tenantId ? { ...t, name: renameValue.trim() } : t));
+    } catch (e: unknown) {
+      setError((e as Error).message ?? "Rename failed.");
+    } finally {
+      setRenamingId(null);
+    }
+  };
+
+  // ── Delete confirmation ────────────────────────────────────────────────────
+  const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!deleteTarget || deleteConfirm !== deleteTarget.name) return;
+    setDeleting(true);
+    try {
+      await deleteTenant(deleteTarget.id);
+      setTenants((prev) => prev.filter((t) => t.id !== deleteTarget.id));
+      setDeleteTarget(null);
+      setDeleteConfirm("");
+    } catch (e: unknown) {
+      setError((e as Error).message ?? "Delete failed.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleLogout = async () => {
     await revokeSessionCookie();
     await signOut(auth).catch(() => {});
@@ -225,9 +291,14 @@ export default function AdminPage() {
 
       {/* Tenants Table */}
       <Card>
-        <CardHeader>
-          <CardTitle>All Workspaces</CardTitle>
-          <CardDescription>Approve or suspend workspace access. Approval activates all users in the workspace.</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
+          <div>
+            <CardTitle>All Workspaces</CardTitle>
+            <CardDescription>Approve or suspend workspace access. Approval activates all users in the workspace.</CardDescription>
+          </div>
+          <Button size="sm" className="gap-2 shrink-0" onClick={() => { setCreateOpen(true); setCreateError(""); }}>
+            <Plus className="w-4 h-4" /> New Workspace
+          </Button>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -259,8 +330,36 @@ export default function AdminPage() {
                   return (
                   <TableRow key={t.id}>
                     <TableCell>
-                      <div className="font-medium">{t.name}</div>
-                      <div className="text-xs text-muted-foreground font-mono">{t.id}</div>
+                      {renamingId === t.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            className="h-7 text-sm w-40"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitRename(t.id);
+                              if (e.key === "Escape") setRenamingId(null);
+                            }}
+                            autoFocus
+                          />
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => commitRename(t.id)}>Save</Button>
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => setRenamingId(null)}>✕</Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 group">
+                          <div>
+                            <div className="font-medium">{t.name}</div>
+                            <div className="text-xs text-muted-foreground font-mono">{t.id}</div>
+                          </div>
+                          <button
+                            className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                            onClick={() => startRename(t)}
+                            title="Rename"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>{statusBadge(t.status)}</TableCell>
                     <TableCell>
@@ -327,6 +426,19 @@ export default function AdminPage() {
                             <TooltipContent>Reset query counter</TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
+                        <TooltipProvider delayDuration={200}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="sm" variant="ghost"
+                                className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => { setDeleteTarget(t); setDeleteConfirm(""); }}
+                                disabled={actionId === t.id}>
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete workspace</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -342,6 +454,86 @@ export default function AdminPage() {
         Stripe integration: when payment is enabled, workspaces will be approved automatically on successful payment.
         The approve/suspend controls above will remain for manual overrides.
       </p>
+
+      {/* ── Create Workspace Modal ── */}
+      <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) { setCreateName(""); setCreateEmail(""); setCreateError(""); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-4 h-4" /> New Workspace
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-1.5">
+              <Label>Workspace Name</Label>
+              <Input
+                placeholder="Acme Corp"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Owner Email</Label>
+              <Input
+                type="email"
+                placeholder="owner@example.com"
+                value={createEmail}
+                onChange={(e) => setCreateEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              />
+              <p className="text-xs text-muted-foreground">
+                If this email has no account, one will be created and a password-reset link logged to the server console.
+              </p>
+            </div>
+            {createError && <p className="text-sm text-destructive">{createError}</p>}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={creating || !createName.trim() || !createEmail.trim()} className="gap-1">
+              {creating && <Loader2 className="w-3 h-3 animate-spin" />}
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Confirmation ── */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteConfirm(""); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="w-4 h-4" /> Delete Workspace
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <span>
+                This will permanently delete <strong>{deleteTarget?.name}</strong> and all its users, documents, and data. This cannot be undone.
+              </span>
+              <span className="block pt-2">
+                Type <strong className="select-all">{deleteTarget?.name}</strong> to confirm:
+              </span>
+              <Input
+                className="mt-1"
+                placeholder={deleteTarget?.name}
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && deleteConfirm === deleteTarget?.name && handleDelete()}
+              />
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setDeleteTarget(null); setDeleteConfirm(""); }}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1"
+              onClick={handleDelete}
+              disabled={deleting || deleteConfirm !== deleteTarget?.name}
+            >
+              {deleting && <Loader2 className="w-3 h-3 animate-spin" />}
+              Delete Workspace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Quota Edit Modal ── */}
       <Dialog open={!!quotaTarget} onOpenChange={(open) => { if (!open) setQuotaTarget(null); }}>

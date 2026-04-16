@@ -174,12 +174,13 @@ export async function suspendTenant(tenantId: string) {
  * If a Firebase Auth account for ownerEmail already exists, it is reused.
  * Otherwise a new account is created and a password-reset email is sent so
  * the owner can set their own password.
- * Returns the new tenantId.
+ * Returns { tenantId, resetLink } — resetLink is null if the owner already had
+ * an account (use getOwnerResetLink to generate one on demand in that case).
  */
 export async function createTenantAsAdmin(
   workspaceName: string,
   ownerEmail: string
-): Promise<string> {
+): Promise<{ tenantId: string; resetLink: string | null }> {
   await requireSuperAdmin();
 
   // Slug the workspace name into a stable tenantId
@@ -192,19 +193,15 @@ export async function createTenantAsAdmin(
 
   // Find or create the owner Firebase Auth account
   let ownerUid: string;
+  let resetLink: string | null = null;
+  let isNewAccount = false;
   try {
     const existing = await adminAuth.getUserByEmail(ownerEmail);
     ownerUid = existing.uid;
   } catch {
     const created = await adminAuth.createUser({ email: ownerEmail });
     ownerUid = created.uid;
-    // Send password-reset email so the owner can log in
-    try {
-      const link = await adminAuth.generatePasswordResetLink(ownerEmail);
-      console.info(`[Admin] Password reset link for ${ownerEmail}: ${link}`);
-    } catch (emailErr) {
-      console.warn("[Admin] Could not generate password reset link:", emailErr);
-    }
+    isNewAccount = true;
   }
 
   // Write tenant + owner user profile in a batch
@@ -237,7 +234,16 @@ export async function createTenantAsAdmin(
   // Stamp custom claims so Firestore rules work immediately
   await adminAuth.setCustomUserClaims(ownerUid, { tenantId, role: "Admin" });
 
-  return tenantId;
+  // Generate reset link for new accounts so the admin can share it
+  if (isNewAccount) {
+    try {
+      resetLink = await adminAuth.generatePasswordResetLink(ownerEmail);
+    } catch {
+      // non-fatal — admin can use the per-row button to generate one
+    }
+  }
+
+  return { tenantId, resetLink };
 }
 
 export async function renameTenant(tenantId: string, newName: string) {
@@ -245,6 +251,21 @@ export async function renameTenant(tenantId: string, newName: string) {
   const name = newName.trim();
   if (!name) throw new Error("Workspace name cannot be empty.");
   await adminDb.doc(`tenants/${tenantId}`).update({ name });
+}
+
+/**
+ * Generate a fresh Firebase password-reset link for the workspace owner.
+ * The link is returned to the caller (admin UI) for copy/paste — no email is sent.
+ */
+export async function getOwnerResetLink(tenantId: string): Promise<string> {
+  await requireSuperAdmin();
+  const tenantSnap = await adminDb.doc(`tenants/${tenantId}`).get();
+  if (!tenantSnap.exists) throw new Error("Tenant not found.");
+  const { ownerId } = tenantSnap.data() as { ownerId: string };
+  const userSnap = await adminDb.doc(`users/${ownerId}`).get();
+  if (!userSnap.exists) throw new Error("Owner profile not found.");
+  const { email } = userSnap.data() as { email: string };
+  return adminAuth.generatePasswordResetLink(email);
 }
 
 /**

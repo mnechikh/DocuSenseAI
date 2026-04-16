@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import {
   getAllTenants, approveTenant, suspendTenant,
   setTenantQuota, resetTenantQueryCount,
-  createTenantAsAdmin, renameTenant, deleteTenant,
+  createTenantAsAdmin, renameTenant, deleteTenant, getOwnerResetLink,
 } from "@/lib/auth-actions";
 import { PLAN_DEFAULTS, type TenantPlan } from "@/lib/quota-constants";
 import { Button } from "@/components/ui/button";
@@ -14,13 +14,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Shield, CheckCircle2, XCircle, Users, Building2, Clock, Loader2, RefreshCw, LogOut, Settings2, RotateCcw, Plus, Pencil, Trash2 } from "lucide-react";
+import { Shield, CheckCircle2, XCircle, Users, Building2, Clock, Loader2, RefreshCw, LogOut, Settings2, RotateCcw, Plus, Pencil, Trash2, KeyRound, Copy, Check } from "lucide-react";
 import { revokeSessionCookie } from "@/lib/auth-actions";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -152,20 +152,54 @@ export default function AdminPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
 
+  // ── Reset link dialog (shared by create + per-row) ────────────────────────
+  const [resetLink, setResetLink] = useState<string | null>(null);
+  const [resetLinkEmail, setResetLinkEmail] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [fetchingLink, setFetchingLink] = useState<string | null>(null); // tenantId
+
+  const copyLink = async () => {
+    if (!resetLink) return;
+    await navigator.clipboard.writeText(resetLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const handleCreate = async () => {
     if (!createName.trim() || !createEmail.trim()) return;
     setCreating(true);
     setCreateError("");
     try {
-      const tenantId = await createTenantAsAdmin(createName.trim(), createEmail.trim());
+      const { tenantId, resetLink: link } = await createTenantAsAdmin(createName.trim(), createEmail.trim());
       setCreateOpen(false);
       setCreateName("");
       setCreateEmail("");
-      await load(); // refresh to get userCount etc.
+      await load();
+      if (link) {
+        setResetLinkEmail(createEmail.trim());
+        setResetLink(link);
+        setCopied(false);
+      }
     } catch (e: unknown) {
       setCreateError((e as Error).message ?? "Failed to create workspace.");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleGetResetLink = async (t: Tenant) => {
+    setFetchingLink(t.id);
+    try {
+      const link = await getOwnerResetLink(t.id);
+      setResetLinkEmail(t.ownerId); // will show tenantId as fallback label
+      // look up email from tenants list for display
+      setResetLinkEmail(t.id);
+      setResetLink(link);
+      setCopied(false);
+    } catch (e: unknown) {
+      setError((e as Error).message ?? "Could not generate reset link.");
+    } finally {
+      setFetchingLink(null);
     }
   };
 
@@ -430,6 +464,19 @@ export default function AdminPage() {
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button size="sm" variant="ghost"
+                                className="gap-1 text-muted-foreground"
+                                onClick={() => handleGetResetLink(t)}
+                                disabled={fetchingLink === t.id}>
+                                {fetchingLink === t.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <KeyRound className="w-3 h-3" />}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Copy owner reset link</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        <TooltipProvider delayDuration={200}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="sm" variant="ghost"
                                 className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
                                 onClick={() => { setDeleteTarget(t); setDeleteConfirm(""); }}
                                 disabled={actionId === t.id}>
@@ -534,6 +581,30 @@ export default function AdminPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Reset Link Dialog ── */}
+      <Dialog open={!!resetLink} onOpenChange={(open) => { if (!open) { setResetLink(null); setCopied(false); } }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-4 h-4" /> Owner Reset Link
+            </DialogTitle>
+            <DialogDescription>
+              Share this link with the workspace owner so they can set their password and log in.
+              The link expires after one use.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 items-center mt-2">
+            <Input readOnly value={resetLink ?? ""} className="font-mono text-xs" />
+            <Button variant="outline" size="icon" onClick={copyLink} className="shrink-0">
+              {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+            </Button>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => { setResetLink(null); setCopied(false); }}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Quota Edit Modal ── */}
       <Dialog open={!!quotaTarget} onOpenChange={(open) => { if (!open) setQuotaTarget(null); }}>

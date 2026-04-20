@@ -53,11 +53,23 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import Link from "next/link";
 
 const ALLOWED_TYPES = [
+  // Documents
   "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+  // Spreadsheets
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+  "application/vnd.ms-excel", // .xls
+  // Text / data
   "text/plain",
   "text/csv",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/markdown",
+  "text/html",
+  "application/json",
+  // Images (extracted via Gemini vision)
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
 ];
 
 const MAX_FILE_SIZE_MB = 30;
@@ -330,7 +342,7 @@ export default function DocumentsPage() {
               id="doc-upload"
               onChange={handleFileUpload}
               disabled={isUploading}
-              accept=".pdf,.docx,.txt,.csv,.xlsx"
+              accept=".pdf,.docx,.xlsx,.xls,.txt,.csv,.md,.html,.htm,.json,.jpg,.jpeg,.png,.webp,.gif"
               multiple
             />
             <Button asChild className="bg-primary hover:bg-primary/90 shadow-md" disabled={isUploading}>

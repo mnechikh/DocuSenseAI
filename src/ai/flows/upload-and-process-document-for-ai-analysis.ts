@@ -15,7 +15,7 @@ async function extractText(documentDataUri: string, fileType: string): Promise<s
   const isHttpsUrl = documentDataUri.startsWith('https://') || documentDataUri.startsWith('http://');
 
   // ── Plain text: decode from base64 or fetch from URL ─────────────────────
-  if (fileType.startsWith('text/')) {
+  if (fileType.startsWith('text/') || fileType === 'application/json') {
     if (isHttpsUrl) {
       const res = await fetch(documentDataUri);
       if (!res.ok) throw new Error(`Failed to fetch document: ${res.statusText}`);
@@ -42,8 +42,11 @@ async function extractText(documentDataUri: string, fileType: string): Promise<s
     return result.value;
   }
 
-  // ── XLSX: convert to CSV via xlsx ────────────────────────────────────────
-  if (fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+  // ── XLSX / XLS: convert to CSV via xlsx ────────────────────────────────────────
+  if (
+    fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    fileType === 'application/vnd.ms-excel'
+  ) {
     const XLSX = await import('xlsx');
     let buffer: Buffer;
     if (isHttpsUrl) {

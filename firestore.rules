@@ -13,11 +13,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // tenants, invites — admin SDK only
+    // tenants, invites, apiKeys — admin SDK only
     match /tenants/{tenantId} {
       allow read, write: if false;
     }
     match /invites/{inviteId} {
+      allow read, write: if false;
+    }
+    match /apiKeys/{keyId} {
       allow read, write: if false;
     }
 

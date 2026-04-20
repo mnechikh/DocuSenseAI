@@ -15,6 +15,8 @@ import {
   History,
   Plus,
   Trash2,
+  KeyRound,
+  BookOpen,
 } from "lucide-react";
 import {
   Sidebar,
@@ -27,6 +29,7 @@ import {
   SidebarGroup,
   SidebarGroupLabel,
   SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -52,17 +55,21 @@ export function DashboardSidebar({ claimsReady }: { claimsReady: boolean }) {
   };
 
   const isAdmin = currentUser?.role === "Admin";
+  const { setOpenMobile } = useSidebar();
 
   const navItems = [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "AI Chat", href: "/chat", icon: MessageSquare },
     { label: "Documents", href: "/documents", icon: FileText, hidden: !isAdmin },
     { label: "User Management", href: "/users", icon: Users, hidden: !isAdmin },
+    { label: "API Keys", href: "/dashboard/api-keys", icon: KeyRound, hidden: !isAdmin },
+    { label: "API Docs", href: "/dashboard/api-docs", icon: BookOpen },
   ];
 
   const isActive = (href: string) => {
     if (href === "/chat") return pathname.startsWith("/chat");
-    return pathname === href;
+    if (href === "/dashboard") return pathname === "/dashboard";
+    return pathname.startsWith(href);
   };
 
   return (
@@ -102,7 +109,7 @@ export function DashboardSidebar({ claimsReady }: { claimsReady: boolean }) {
                       : "hover:bg-sidebar-accent/20"
                   )}
                 >
-                  <Link href={item.href} className="flex items-center gap-3">
+                  <Link href={item.href} className="flex items-center gap-3" onClick={() => setOpenMobile(false)}>
                     <item.icon className="w-4 h-4" />
                     <span className="font-medium">{item.label}</span>
                   </Link>

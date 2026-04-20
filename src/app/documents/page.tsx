@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useStore, DocumentRecord } from "@/lib/store";
 import { useDocuments } from "@/hooks/useDocuments";
@@ -46,7 +46,9 @@ import {
 import { uploadAndProcessDocumentForAIAnalysis } from "@/ai/flows/upload-and-process-document-for-ai-analysis";
 import { deleteDocumentChunks } from "@/lib/auth-actions";
 import { storage } from "@/lib/firebase";
-import { ref, uploadBytes } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL, listAll } from "firebase/storage";
+import { getMyTenantQuota } from "@/lib/auth-actions";
+import { PLAN_DEFAULTS } from "@/lib/quota-constants";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -131,6 +133,14 @@ export default function DocumentsPage() {
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<DocumentRecord["status"] | "all">("all");
+  const [docQuota, setDocQuota] = useState(PLAN_DEFAULTS.free.docQuota);
+
+  useEffect(() => {
+    if (!currentUser?.tenantId) return;
+    getMyTenantQuota()
+      .then((q) => setDocQuota(q.docQuota))
+      .catch((err) => console.error("[Documents] tenant quota fetch:", err));
+  }, [currentUser?.tenantId]);
 
   const allTenantDocs = documents;
 
@@ -152,6 +162,12 @@ export default function DocumentsPage() {
     processing: allTenantDocs.filter((d) => d.status === "processing").length,
     failed: allTenantDocs.filter((d) => d.status === "failed").length,
   };
+
+  // Quota: count every doc that occupies a slot (mirrors server-side checkDocumentQuota)
+  const quotaUsed = allTenantDocs.filter(
+    (d) => d.status === "uploaded" || d.status === "processing" || d.status === "indexed"
+  ).length;
+  const quotaFull = quotaUsed >= docQuota;
 
   if (currentUser?.role !== "Admin") {
     return (
@@ -237,7 +253,18 @@ export default function DocumentsPage() {
     e.target.value = "";
     if (!fileList || fileList.length === 0) return;
 
+    // Client-side quota gate — prevents orphaned "uploaded" docs and gives instant UX
+    if (quotaFull) {
+      toast({
+        title: "Document quota reached",
+        description: `Your plan allows ${docQuota} document${docQuota !== 1 ? "s" : ""}. Remove some documents or contact your administrator.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     const files = Array.from(fileList);
+    const remaining = docQuota - quotaUsed;
     const validEntries: { file: File; docId: string }[] = [];
 
     for (const file of files) {
@@ -248,6 +275,15 @@ export default function DocumentsPage() {
       if (!ALLOWED_TYPES.includes(file.type)) {
         toast({ title: "Unsupported file type", description: `${file.name}: supported formats are PDF, DOCX, TXT, CSV, XLSX.`, variant: "destructive" });
         continue;
+      }
+
+      if (validEntries.length >= remaining) {
+        toast({
+          title: "Some files skipped",
+          description: `Only ${remaining} slot${remaining !== 1 ? "s" : ""} available. The first ${remaining} valid file${remaining !== 1 ? "s were" : " was"} queued.`,
+          variant: "destructive",
+        });
+        break;
       }
 
       const docId = crypto.randomUUID();
@@ -271,23 +307,76 @@ export default function DocumentsPage() {
 
     if (validEntries.length === 0) return;
 
+    // Sequential processing — each file completes (Firestore write + quota increment)
+    // before the next quota check runs, eliminating the parallel race condition.
     setIsUploading(true);
-    await Promise.all(validEntries.map(({ file, docId }) => processFile(file, docId)));
+    for (const { file, docId } of validEntries) {
+      await processFile(file, docId);
+    }
     setIsUploading(false);
+  };
+
+  // Map human-readable fileType label back to MIME type for re-processing
+  const LABEL_TO_MIME: Record<string, string> = {
+    PDF: "application/pdf",
+    DOCX: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    XLS: "application/vnd.ms-excel",
+    TXT: "text/plain",
+    CSV: "text/csv",
+    MD: "text/markdown",
+    HTML: "text/html",
+    JSON: "application/json",
+    JPEG: "image/jpeg",
+    JPG: "image/jpeg",
+    PNG: "image/png",
+    WEBP: "image/webp",
+    GIF: "image/gif",
   };
 
   const handleRetry = async (doc: DocumentRecord) => {
     setRetryingId(doc.id);
     await updateDocument(doc.id, { status: "processing" });
     try {
+      // Fetch the original file from Firebase Storage to re-process it properly.
+      // Falls back to a text/plain sentinel only if the file is no longer in Storage.
+      let documentDataUri: string;
+      let mimeType: string = LABEL_TO_MIME[doc.fileType.toUpperCase()] ?? "text/plain";
+
+      try {
+        const folderRef = ref(storage, `tenants/${doc.tenantId}/docs/${doc.id}`);
+        const listResult = await listAll(folderRef);
+        if (listResult.items.length > 0) {
+          const fileRef = listResult.items[0];
+          const downloadUrl = await getDownloadURL(fileRef);
+          // Fetch as blob and convert to base64 data URI
+          const blob = await fetch(downloadUrl).then((r) => r.blob());
+          documentDataUri = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(new Error("FileReader failed"));
+            reader.readAsDataURL(blob);
+          });
+          // Use blob's actual MIME type if available
+          if (blob.type) mimeType = blob.type;
+        } else {
+          throw new Error("No file found in Storage folder");
+        }
+      } catch (storageErr: unknown) {
+        console.warn("[Retry] Storage fetch failed, using sentinel:", (storageErr as Error).message);
+        documentDataUri = "data:text/plain;base64,UmV0cnlpbmcgZG9jdW1lbnQgcHJvY2Vzc2luZy4=";
+        mimeType = "text/plain";
+      }
+
       const result = await uploadAndProcessDocumentForAIAnalysis({
         tenantId: currentUser.tenantId,
         documentId: doc.id,
         filename: doc.filename,
-        fileType: "text/plain",
-        documentDataUri: "data:text/plain;base64,UmV0cnlpbmcgZG9jdW1lbnQgcHJvY2Vzc2luZy4=",
+        fileType: mimeType,
+        documentDataUri,
         callerRole: currentUser.role,
       });
+
       if (result.status === "processed") {
         await updateDocument(doc.id, { status: "indexed", chunkCount: result.chunkCount, chunks: result.chunks });
         toast({ title: "Retry Succeeded", description: `${doc.filename} re-indexed.` });
@@ -366,14 +455,14 @@ export default function DocumentsPage() {
                 className="hidden"
                 id="doc-upload"
                 onChange={handleFileUpload}
-                disabled={isUploading}
+                disabled={isUploading || quotaFull}
                 accept=".pdf,.docx,.xlsx,.xls,.txt,.csv,.md,.html,.htm,.json,.jpg,.jpeg,.png,.webp,.gif"
                 multiple
               />
-              <Button asChild className="bg-primary hover:bg-primary/90 shadow-md" disabled={isUploading}>
+              <Button asChild className="bg-primary hover:bg-primary/90 shadow-md" disabled={isUploading || quotaFull}>
                 <label
                   htmlFor="doc-upload"
-                  className={isUploading ? "cursor-not-allowed opacity-70 flex items-center" : "cursor-pointer flex items-center"}
+                  className={(isUploading || quotaFull) ? "cursor-not-allowed opacity-70 flex items-center" : "cursor-pointer flex items-center"}
                 >
                   {isUploading ? (
                     <Clock className="mr-2 h-4 w-4 animate-spin" />
@@ -383,6 +472,9 @@ export default function DocumentsPage() {
                   {isUploading ? "Uploading…" : "Add Documents"}
                 </label>
               </Button>
+              <span className={`text-xs font-medium tabular-nums ${quotaFull ? "text-destructive" : "text-muted-foreground"}`}>
+                {quotaUsed}/{docQuota} docs
+              </span>
             </div>
           </div>
         </div>

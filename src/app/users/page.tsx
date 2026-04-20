@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { generateInviteToken, getTenantMembers, removeUserFromTenant } from "@/lib/auth-actions";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Users, UserPlus, Shield, Lock, Mail, CheckCircle,
-  ShieldCheck, AlertCircle, Loader2, Copy, Check, UserX, RefreshCw
+  ShieldCheck, AlertCircle, Loader2, Copy, Check, UserX, RefreshCw,
+  LayoutDashboard, ArrowLeft,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -28,6 +30,7 @@ type Member = {
 };
 
 export default function UsersPage() {
+  const router = useRouter();
   const { currentUser } = useStore();
   const { toast } = useToast();
   const [members, setMembers] = useState<Member[]>([]);
@@ -106,8 +109,21 @@ export default function UsersPage() {
 
   return (
     <TooltipProvider>
-      <div className="space-y-8 max-w-7xl mx-auto">
-        <div className="flex items-end justify-between">
+      <div className="space-y-6 max-w-7xl mx-auto">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <button
+            className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+            onClick={() => router.push("/dashboard")}
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            Dashboard
+          </button>
+          <span>/</span>
+          <span className="text-foreground font-medium">User Management</span>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-primary">User Management</h1>
             <p className="text-muted-foreground mt-1">

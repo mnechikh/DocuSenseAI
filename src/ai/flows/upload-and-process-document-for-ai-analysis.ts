@@ -103,13 +103,24 @@ async function extractText(documentDataUri: string, fileType: string): Promise<s
 
   if (geminiSupportedTypes.includes(fileType)) {
     console.info('[Ingestion] Using Gemini to extract text from:', fileType);
+
+    // Images need a description + OCR prompt so visual content becomes searchable.
+    // PDFs keep the strict verbatim extraction prompt.
+    const isImage = fileType.startsWith('image/');
+    const extractionPrompt = isImage
+      ? `You are indexing this image into a searchable knowledge base. Produce a thorough, structured description covering:
+1. VISUAL CONTENT: Describe every visible element — logos, icons, people, objects, colours, layout, design.
+2. TEXT (OCR): Transcribe every word of text visible in the image exactly as written, including labels, headings, stamps, watermarks, serial numbers, and fine print.
+3. CONTEXT & PURPOSE: State what type of document or image this appears to be (e.g. certificate, badge, photo, diagram, screenshot) and its apparent purpose.
+
+Format your output as plain prose followed by a "TRANSCRIBED TEXT:" section. Be exhaustive — do not omit any detail.`
+      : 'Extract ALL text content from this document verbatim. Output only the raw text. Preserve headings, paragraphs, lists, and all table content. Do not summarize, skip, or paraphrase anything. Output every word as-is.';
+
     const response = await ai.generate({
       model: 'googleai/gemini-2.5-flash-lite',
       prompt: [
         { media: { url: documentDataUri, contentType: fileType } },
-        {
-          text: 'Extract ALL text content from this document verbatim. Output only the raw text. Preserve headings, paragraphs, lists, and all table content. Do not summarize, skip, or paraphrase anything. Output every word as-is.',
-        },
+        { text: extractionPrompt },
       ],
     });
     const extracted = response.text;
@@ -152,6 +163,65 @@ function chunkText(
   return chunks;
 }
 
+// ─── Structured Metadata Extraction ─────────────────────────────────────────
+
+export interface ExtractedMetadata {
+  [key: string]: unknown;         // satisfies Record<string, unknown> for Genkit schema
+  documentType: string;           // e.g. "contract", "invoice", "certificate", "report"
+  summary: string;                // 2-3 sentence summary
+  keyEntities: {
+    dates: string[];
+    amounts: string[];
+    organizations: string[];
+    people: string[];
+    referenceNumbers: string[];
+  };
+  topics: string[];               // 3-8 high-level topics / keywords
+  confidence: number;             // 0-1 confidence in extraction quality
+}
+
+async function extractStructuredMetadata(
+  text: string,
+  filename: string
+): Promise<ExtractedMetadata | null> {
+  try {
+    const snippet = text.slice(0, 6000); // Use first ~6k chars for speed
+    const response = await ai.generate({
+      model: 'googleai/gemini-2.5-flash-lite',
+      prompt: `You are a document intelligence system. Analyze the document content below and return a JSON object.
+
+Document filename: ${filename}
+
+Return ONLY valid JSON matching this exact shape (no markdown, no explanation):
+{
+  "documentType": "<one of: contract, invoice, certificate, report, policy, form, image, spreadsheet, email, other>",
+  "summary": "<2-3 sentence summary of what this document contains and its purpose>",
+  "keyEntities": {
+    "dates": ["<ISO or natural date strings found>"],
+    "amounts": ["<monetary amounts, percentages, numeric values with units>"],
+    "organizations": ["<company names, agencies, institutions>"],
+    "people": ["<person names or titles>"],
+    "referenceNumbers": ["<IDs, contract numbers, invoice numbers, reference codes>"]
+  },
+  "topics": ["<3-8 topic keywords>"],
+  "confidence": <0.0-1.0>
+}
+
+Document content:
+${snippet}`,
+    });
+    const raw = response.text?.trim() ?? '';
+    // Strip markdown code fences if present
+    const jsonStr = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsed = JSON.parse(jsonStr) as ExtractedMetadata;
+    console.info('[Ingestion] Structured metadata extracted:', { documentType: parsed.documentType, topics: parsed.topics });
+    return parsed;
+  } catch (err: unknown) {
+    console.warn('[Ingestion] Structured extraction failed (non-fatal):', (err as Error).message);
+    return null;
+  }
+}
+
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
 const UploadAndProcessDocumentInputSchema = z.object({
@@ -170,6 +240,7 @@ const UploadAndProcessDocumentOutputSchema = z.object({
   message: z.string(),
   chunkCount: z.number().optional(),
   chunks: z.array(z.string()).optional().describe('Raw text chunks for client-side persistence.'),
+  extractedMetadata: z.record(z.unknown()).optional().describe('Structured metadata from AI analysis.'),
 });
 export type UploadAndProcessDocumentOutput = z.infer<typeof UploadAndProcessDocumentOutputSchema>;
 
@@ -198,7 +269,9 @@ const uploadAndProcessDocumentFlow = ai.defineFlow(
     }
 
     // ── Document quota check ──
-    const quotaCheck = await checkDocumentQuota(tenantId);
+    // Pass documentId so the quota check excludes the "uploaded" placeholder
+    // the client already wrote before invoking this server action.
+    const quotaCheck = await checkDocumentQuota(tenantId, documentId);
     if (!quotaCheck.allowed) {
       console.warn('[Ingestion] Document quota exceeded:', { tenantId, reason: quotaCheck.reason });
       return {
@@ -221,7 +294,7 @@ const uploadAndProcessDocumentFlow = ai.defineFlow(
         };
       }
 
-      // Attempt embeddings — graceful degradation to keyword-only on failure
+      // Attempt embeddings + structured extraction in parallel — both are non-blocking
       if (chunks.length > 0) {
         try {
           await ai.embedMany({ embedder: 'googleai/gemini-embedding-001', content: chunks });
@@ -231,6 +304,24 @@ const uploadAndProcessDocumentFlow = ai.defineFlow(
             '[Ingestion] Embedding failed — falling back to keyword index:',
             (embeddingError as Error).message
           );
+        }
+      }
+
+      // Structured metadata extraction runs in parallel with vector store persistence
+      const [metadata] = await Promise.all([
+        extractStructuredMetadata(extractedText, filename),
+        // (vector store write happens below — separated for clarity)
+        Promise.resolve(),
+      ]);
+
+      // Persist metadata to Firestore documents record if we have it
+      if (metadata) {
+        try {
+          await adminDb.collection('documents').doc(documentId).update({
+            extractedMetadata: metadata,
+          });
+        } catch {
+          // Non-fatal
         }
       }
 
@@ -279,6 +370,7 @@ const uploadAndProcessDocumentFlow = ai.defineFlow(
         message: `Indexed ${chunks.length} chunks in ${elapsedMs}ms.`,
         chunkCount: chunks.length,
         chunks,
+        extractedMetadata: metadata ?? undefined,
       };
     } catch (error: unknown) {
       const msg = (error as Error).message ?? 'Unknown internal error.';

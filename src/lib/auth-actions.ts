@@ -413,23 +413,27 @@ export async function checkAndIncrementQueryQuota(
 
 /**
  * Check whether adding a new document would exceed the tenant's docQuota.
- * Does NOT increment — caller must create the document record separately.
+ * Pass `excludeDocumentId` to exclude a already-written placeholder doc from the count
+ * (the client pre-writes a doc with status "uploaded" before calling this).
  */
 export async function checkDocumentQuota(
-  tenantId: string
+  tenantId: string,
+  excludeDocumentId?: string
 ): Promise<{ allowed: boolean; reason?: string }> {
   const snap = await adminDb.doc(`tenants/${tenantId}`).get();
   if (!snap.exists) return { allowed: false, reason: "Tenant not found." };
   const data = snap.data() as Record<string, unknown>;
   const docQuota = (data.docQuota as number) ?? 5;
-  // Count indexed + processing docs (not failed/uploaded-only)
+  // Count indexed + processing + uploaded docs, excluding the current in-flight doc
   const countSnap = await adminDb
     .collection("documents")
     .where("tenantId", "==", tenantId)
     .where("status", "in", ["uploaded", "processing", "indexed"])
     .count()
     .get();
-  const current = countSnap.data().count;
+  // Subtract 1 if the caller pre-wrote their own placeholder doc before calling us
+  const inflight = excludeDocumentId ? 1 : 0;
+  const current = countSnap.data().count - inflight;
   if (current >= docQuota) {
     return {
       allowed: false,
@@ -570,4 +574,57 @@ export async function deleteDocumentChunks(documentId: string) {
   if (!user) throw new Error("Unauthorized.");
   // Delete the Firestore chunks doc for this document
   await adminDb.doc(`chunks/${user.tenantId}_${documentId}`).delete();
+}
+
+// ─── API Keys ────────────────────────────────────────────────────────────────
+
+export async function createApiKey(label: string): Promise<{ rawKey: string; keyId: string }> {
+  const user = await getSessionUser();
+  if (!user || user.role !== "Admin") throw new Error("Only Admins can create API keys.");
+  const { generateRawKey } = await import("@/lib/api-auth");
+  const { rawKey, record } = generateRawKey(user.tenantId, label.trim() || "Unnamed key");
+  await adminDb.collection("apiKeys").doc(record.keyId).set(record);
+  return { rawKey, keyId: record.keyId };
+}
+
+export async function listApiKeys(): Promise<Array<{
+  keyId: string;
+  label: string;
+  keyPrefix: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+  active: boolean;
+}>> {
+  const user = await getSessionUser();
+  if (!user || user.role !== "Admin") throw new Error("Only Admins can list API keys.");
+  const snap = await adminDb
+    .collection("apiKeys")
+    .where("tenantId", "==", user.tenantId)
+    .where("active", "==", true)
+    .get();
+  return snap.docs
+    .map((d) => {
+      const r = d.data();
+      return {
+        keyId: r.keyId as string,
+        label: r.label as string,
+        keyPrefix: r.keyPrefix as string,
+        createdAt: r.createdAt as number,
+        lastUsedAt: (r.lastUsedAt as number | null) ?? null,
+        active: r.active as boolean,
+      };
+    })
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function revokeApiKey(keyId: string): Promise<void> {
+  const user = await getSessionUser();
+  if (!user || user.role !== "Admin") throw new Error("Only Admins can revoke API keys.");
+  const ref = adminDb.collection("apiKeys").doc(keyId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("Key not found.");
+  if ((snap.data() as { tenantId: string }).tenantId !== user.tenantId) {
+    throw new Error("Unauthorized.");
+  }
+  await ref.update({ active: false });
 }

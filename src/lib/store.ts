@@ -27,6 +27,20 @@ export interface DocumentRecord {
   processingMs?: number;
   /** Persisted chunks for server re-hydration after restarts */
   chunks?: string[];
+  /** Structured metadata extracted by AI at ingestion time */
+  extractedMetadata?: {
+    documentType?: string;
+    summary?: string;
+    keyEntities?: {
+      dates?: string[];
+      amounts?: string[];
+      organizations?: string[];
+      people?: string[];
+      referenceNumbers?: string[];
+    };
+    topics?: string[];
+    confidence?: number;
+  };
 }
 
 export interface ChatMessage {

@@ -335,29 +335,46 @@ export default function DocumentsPage() {
               Back to Dashboard
             </Link>
           </Button>
-          <div className="relative">
-            <Input
-              type="file"
-              className="hidden"
-              id="doc-upload"
-              onChange={handleFileUpload}
-              disabled={isUploading}
-              accept=".pdf,.docx,.xlsx,.xls,.txt,.csv,.md,.html,.htm,.json,.jpg,.jpeg,.png,.webp,.gif"
-              multiple
-            />
-            <Button asChild className="bg-primary hover:bg-primary/90 shadow-md" disabled={isUploading}>
-              <label
-                htmlFor="doc-upload"
-                className={isUploading ? "cursor-not-allowed opacity-70 flex items-center" : "cursor-pointer flex items-center"}
-              >
-                {isUploading ? (
-                  <Clock className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="mr-2 h-4 w-4" />
-                )}
-                {isUploading ? "Uploading…" : "Add Documents"}
-              </label>
-            </Button>
+          <div className="flex items-center gap-2">
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="w-4 h-4 text-muted-foreground cursor-help shrink-0" />
+                </TooltipTrigger>
+                <TooltipContent side="left" className="max-w-xs text-xs leading-relaxed space-y-1">
+                  <p className="font-semibold mb-1">Supported formats</p>
+                  <p>📄 Documents — PDF, DOCX</p>
+                  <p>📊 Spreadsheets — XLSX, XLS</p>
+                  <p>📝 Text / Data — TXT, CSV, MD, HTML, JSON</p>
+                  <p>🖼 Images — JPG, PNG, WebP, GIF</p>
+                  <p className="text-muted-foreground mt-1">Max {MAX_FILE_SIZE_MB} MB per file</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <div className="relative">
+              <Input
+                type="file"
+                className="hidden"
+                id="doc-upload"
+                onChange={handleFileUpload}
+                disabled={isUploading}
+                accept=".pdf,.docx,.xlsx,.xls,.txt,.csv,.md,.html,.htm,.json,.jpg,.jpeg,.png,.webp,.gif"
+                multiple
+              />
+              <Button asChild className="bg-primary hover:bg-primary/90 shadow-md" disabled={isUploading}>
+                <label
+                  htmlFor="doc-upload"
+                  className={isUploading ? "cursor-not-allowed opacity-70 flex items-center" : "cursor-pointer flex items-center"}
+                >
+                  {isUploading ? (
+                    <Clock className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="mr-2 h-4 w-4" />
+                  )}
+                  {isUploading ? "Uploading…" : "Add Documents"}
+                </label>
+              </Button>
+            </div>
           </div>
         </div>
       </div>

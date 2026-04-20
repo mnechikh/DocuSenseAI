@@ -278,7 +278,7 @@ export default function DocumentsPage() {
 
   const handleRetry = async (doc: DocumentRecord) => {
     setRetryingId(doc.id);
-    await updateDocument(doc.id, { status: "processing", failureReason: undefined });
+    await updateDocument(doc.id, { status: "processing" });
     try {
       const result = await uploadAndProcessDocumentForAIAnalysis({
         tenantId: currentUser.tenantId,

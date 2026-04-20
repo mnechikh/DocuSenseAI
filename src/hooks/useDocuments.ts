@@ -44,8 +44,12 @@ export function useDocuments(tenantId: string | undefined) {
   };
 
   const updateDocument = async (id: string, updates: Partial<DocumentRecord>) => {
+    // Strip undefined values — Firestore rejects them; callers should use deleteField() explicitly
+    const clean = Object.fromEntries(
+      Object.entries(updates).filter(([, v]) => v !== undefined)
+    );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await updateDoc(doc(db, "documents", id), updates as any);
+    await updateDoc(doc(db, "documents", id), clean as any);
   };
 
   const removeDocument = async (id: string) => {

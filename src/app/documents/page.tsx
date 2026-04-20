@@ -327,6 +327,30 @@ export default function DocumentsPage() {
             Upload and index documents for AI retrieval •{" "}
             <span className="font-medium text-primary">{currentUser.tenantId}</span>
           </p>
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {[
+              { label: "PDF" },
+              { label: "DOCX" },
+              { label: "XLSX" },
+              { label: "XLS" },
+              { label: "TXT" },
+              { label: "CSV" },
+              { label: "MD" },
+              { label: "HTML" },
+              { label: "JSON" },
+              { label: "JPG" },
+              { label: "PNG" },
+              { label: "WebP" },
+              { label: "GIF" },
+            ].map(({ label }) => (
+              <span key={label} className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border">
+                {label}
+              </span>
+            ))}
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium text-muted-foreground">
+              · max {MAX_FILE_SIZE_MB} MB
+            </span>
+          </div>
         </div>
         <div className="flex gap-2 shrink-0">
           <Button variant="outline" size="sm" asChild>
@@ -336,21 +360,6 @@ export default function DocumentsPage() {
             </Link>
           </Button>
           <div className="flex items-center gap-2">
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info className="w-4 h-4 text-muted-foreground cursor-help shrink-0" />
-                </TooltipTrigger>
-                <TooltipContent side="left" className="max-w-xs text-xs leading-relaxed space-y-1">
-                  <p className="font-semibold mb-1">Supported formats</p>
-                  <p>📄 Documents — PDF, DOCX</p>
-                  <p>📊 Spreadsheets — XLSX, XLS</p>
-                  <p>📝 Text / Data — TXT, CSV, MD, HTML, JSON</p>
-                  <p>🖼 Images — JPG, PNG, WebP, GIF</p>
-                  <p className="text-muted-foreground mt-1">Max {MAX_FILE_SIZE_MB} MB per file</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
             <div className="relative">
               <Input
                 type="file"

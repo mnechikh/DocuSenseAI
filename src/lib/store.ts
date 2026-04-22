@@ -43,10 +43,28 @@ export interface DocumentRecord {
   };
 }
 
+export interface ProposedAction {
+  integrationId: string;
+  integrationName: string;
+  reason: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface ExecutedAction {
+  integrationName: string;
+  success: boolean;
+  statusCode?: number;
+  result?: string;
+  executedAt: number;
+  dismissed?: boolean;
+}
+
 export interface ChatMessage {
   role: "user" | "model";
   content: string;
   citations?: { documentName: string; pageSection?: string }[];
+  proposedAction?: ProposedAction;
+  executedAction?: ExecutedAction;
 }
 
 export interface ChatSession {

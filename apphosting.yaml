@@ -24,4 +24,14 @@ env:
   - variable: OWNER_UID
     value: t0H9YhciYvRRdyN3CniRb3fCaYg1
   - variable: NEXT_PUBLIC_APP_URL
-    value: https://lumxia--studio-5790176463-f6e8c.us-east4.hosted.app
+    value: https://lumxia.com
+  - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    value: pk_test_51TP4iaR65qRiN3MPHDLvsO0C7gXVirkKg1u1IeK9u5nIpeluQpdar12VQ6TFjgBHv1t1qDq4Efp6AgupRx0P63jh00mZjqxM8J
+  - variable: STRIPE_STARTER_PRICE_ID
+    value: price_1TP540R65qRiN3MPKoM51R9O
+  - variable: STRIPE_PRO_PRICE_ID
+    value: price_1TP54PR65qRiN3MPmsptDBWG
+  - variable: STRIPE_SECRET_KEY
+    secret: STRIPE_SECRET_KEY
+  - variable: STRIPE_WEBHOOK_SECRET
+    secret: STRIPE_WEBHOOK_SECRET

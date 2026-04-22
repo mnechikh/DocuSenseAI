@@ -3,37 +3,71 @@
 export const dynamic = 'force-dynamic';
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useStore } from "@/lib/store";
 import { auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import Link from "next/link";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { currentUser } = useStore();
-  // Gate rendering until the Firebase Auth token has the tenantId custom claim.
-  // Old sessions (from before claims were added) need a force-refresh.
+  const { currentUser, setCurrentUser } = useStore();
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
+
   const [claimsReady, setClaimsReady] = useState(false);
+  // authResolved = Firebase has told us whether a user exists (prevents premature redirect on page reload)
+  const [authResolved, setAuthResolved] = useState(false);
 
   useEffect(() => {
-    if (!currentUser) {
-      router.push("/login");
-      return;
-    }
-    const user = auth.currentUser;
-    if (!user) { setClaimsReady(true); return; }
-    user.getIdTokenResult().then(async (result) => {
-      if (!result.claims.tenantId) {
-        // Token predates custom claims — force a refresh to pick them up.
-        await user.getIdToken(true);
-      }
-      setClaimsReady(true);
-    });
-  }, [currentUser, router]);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      try {
+        if (!firebaseUser) {
+          // Confirmed: no logged-in user
+          setAuthResolved(true);
+          return;
+        }
 
-  if (!currentUser || !claimsReady) return null;
+        // Page-reload case: Firebase has a user but Zustand lost its state.
+        // Restore the profile from the session cookie via server action.
+        if (!currentUserRef.current) {
+          const { getSessionUser } = await import("@/lib/auth-actions");
+          const profile = await getSessionUser();
+          if (profile) {
+            setCurrentUser({
+              userId: profile.uid,
+              tenantId: profile.tenantId,
+              email: profile.email,
+              role: profile.role,
+              name: profile.name,
+              status: profile.status,
+            });
+          }
+        }
+
+        // Ensure the ID token carries the custom claims (tenantId / role).
+        const result = await firebaseUser.getIdTokenResult();
+        if (!result.claims.tenantId) {
+          await firebaseUser.getIdToken(true);
+        }
+        setClaimsReady(true);
+      } finally {
+        setAuthResolved(true);
+      }
+    });
+    return () => unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount
+
+  // Redirect only after Firebase confirms there's no authenticated user.
+  useEffect(() => {
+    if (!authResolved) return;
+    if (!currentUser) router.push("/login");
+  }, [authResolved, currentUser, router]);
+
+  if (!authResolved || !currentUser || !claimsReady) return null;
 
   return (
     <SidebarProvider>

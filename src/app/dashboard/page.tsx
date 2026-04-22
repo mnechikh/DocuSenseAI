@@ -19,6 +19,7 @@ import {
   AlertCircle,
   Clock,
   Gauge,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -38,8 +39,9 @@ export default function DashboardPage() {
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
 
   useEffect(() => {
+    if (!currentUser?.tenantId) return;
     getMyTenantQuota().then(setQuota).catch(() => {});
-  }, []);
+  }, [currentUser?.tenantId]);
 
   const docCount = tenantDocuments.filter(d => d.status !== "failed").length;
 
@@ -120,7 +122,14 @@ export default function DashboardPage() {
               <Gauge className="h-4 w-4 text-muted-foreground" />
               <CardTitle className="text-sm font-medium">Usage — this month</CardTitle>
             </div>
-            <Badge variant="outline" className="capitalize text-xs">{quota.plan} plan</Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="capitalize text-xs">{quota.plan} plan</Badge>
+              {quota.plan === "free" && (
+                <Button asChild size="sm" className="h-7 text-xs px-3">
+                  <Link href="/dashboard/billing"><Zap className="h-3 w-3 mr-1" />Upgrade</Link>
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-2">
             <div className="space-y-1.5">
@@ -136,17 +145,36 @@ export default function DashboardPage() {
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>AI Queries</span>
-                <span>{quota.queriesThisMonth} / {quota.queryQuota}</span>
+                <span className={quota.queriesThisMonth >= quota.queryQuota ? "text-destructive font-semibold" : quota.queriesThisMonth / quota.queryQuota >= 0.8 ? "text-amber-600 font-semibold" : ""}>
+                  {quota.queriesThisMonth} / {quota.queryQuota}
+                </span>
               </div>
               <Progress
                 value={quota.queryQuota > 0 ? Math.min(100, Math.round((quota.queriesThisMonth / quota.queryQuota) * 100)) : 0}
-                className="h-2"
+                className={`h-2 ${
+                  quota.queriesThisMonth >= quota.queryQuota ? "[&>div]:bg-destructive" :
+                  quota.queriesThisMonth / quota.queryQuota >= 0.8 ? "[&>div]:bg-amber-500" : ""
+                }`}
               />
               <p className="text-[10px] text-muted-foreground">
                 Resets {new Date(quota.quotaResetAt).toLocaleDateString()}
               </p>
             </div>
           </CardContent>
+          {/* Upgrade CTA when at or near limit */}
+          {quota.plan === "free" && quota.queriesThisMonth / quota.queryQuota >= 0.8 && (
+            <div className="mx-6 mb-4 flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+              <p className="text-sm text-amber-800 flex-1">
+                {quota.queriesThisMonth >= quota.queryQuota
+                  ? "You've used all your queries this month."
+                  : `${quota.queryQuota - quota.queriesThisMonth} queries remaining — running low.`}
+              </p>
+              <Button asChild size="sm" className="shrink-0">
+                <Link href="/dashboard/billing"><Zap className="h-3.5 w-3.5 mr-1" />Upgrade now</Link>
+              </Button>
+            </div>
+          )}
         </Card>
       )}
 

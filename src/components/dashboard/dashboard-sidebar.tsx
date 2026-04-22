@@ -17,6 +17,8 @@ import {
   Trash2,
   KeyRound,
   BookOpen,
+  Plug2,
+  CreditCard,
 } from "lucide-react";
 import {
   Sidebar,
@@ -63,7 +65,9 @@ export function DashboardSidebar({ claimsReady }: { claimsReady: boolean }) {
     { label: "Documents", href: "/documents", icon: FileText, hidden: !isAdmin },
     { label: "User Management", href: "/users", icon: Users, hidden: !isAdmin },
     { label: "API Keys", href: "/dashboard/api-keys", icon: KeyRound, hidden: !isAdmin },
+    { label: "Integrations", href: "/dashboard/integrations", icon: Plug2, hidden: !isAdmin },
     { label: "API Docs", href: "/dashboard/api-docs", icon: BookOpen },
+    { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
   ];
 
   const isActive = (href: string) => {

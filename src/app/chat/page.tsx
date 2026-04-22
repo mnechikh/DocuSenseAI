@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useState, useRef, useEffect, Suspense } from "react";
+import Link from "next/link";
 import { useStore, ChatMessage } from "@/lib/store";
 import { useChats } from "@/hooks/useChats";
 import { useDocuments } from "@/hooks/useDocuments";
@@ -49,8 +50,13 @@ import {
   Trash2,
   Plus,
   AlertCircle,
+  Zap,
+  CheckCircle2,
+  XCircle,
+  CreditCard,
 } from "lucide-react";
 import { getAIPoweredAnswersFromDocuments } from "@/ai/flows/get-ai-powered-answers-from-documents";
+import { executeIntegration } from "@/lib/integration-actions";
 import { cn } from "@/lib/utils";
 
 // useSearchParams requires Suspense in Next.js 14+
@@ -91,6 +97,7 @@ function ChatContent() {
     chats,
     createChat: createChatInFirestore,
     addMessage,
+    patchMessage,
     renameChat: renameChatInFirestore,
     removeChat,
   } = useChats(claimsReady ? currentUser?.tenantId : undefined, claimsReady ? currentUser?.userId : undefined);
@@ -98,6 +105,7 @@ function ChatContent() {
 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [runningActionIdx, setRunningActionIdx] = useState<number | null>(null);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -161,17 +169,69 @@ function ChatContent() {
         role: "model",
         content: response.answer,
         citations: response.citations,
+        proposedAction: response.proposedAction,
       });
     } catch (error: unknown) {
-      console.error("[Chat] Message error:", (error as Error).message);
+      const msg = (error as Error).message ?? "";
+      const isQuotaError = msg.toLowerCase().includes("limit") || msg.toLowerCase().includes("quota");
+      console.error("[Chat] Message error:", msg);
       await addMessage(activeChatId, {
         role: "model",
-        content:
-          "I encountered an error while processing your request. Please try again.",
+        content: isQuotaError
+          ? "__QUOTA_EXCEEDED__"
+          : "I encountered an error while processing your request. Please try again.",
       });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleRunAction = async (msgIdx: number) => {
+    if (!currentChat || !chatId || runningActionIdx !== null) return;
+    const message = currentChat.messages[msgIdx];
+    if (!message?.proposedAction) return;
+    setRunningActionIdx(msgIdx);
+    try {
+      const result = await executeIntegration(
+        message.proposedAction.integrationId,
+        message.proposedAction.parameters
+      );
+      await patchMessage(chatId, msgIdx, {
+        executedAction: {
+          integrationName: message.proposedAction.integrationName,
+          success: result.success,
+          statusCode: result.statusCode,
+          result: result.result,
+          executedAt: result.executedAt,
+        },
+      });
+    } catch (e: unknown) {
+      await patchMessage(chatId, msgIdx, {
+        executedAction: {
+          integrationName: message.proposedAction.integrationName,
+          success: false,
+          statusCode: 0,
+          result: (e as Error).message,
+          executedAt: Date.now(),
+        },
+      });
+    } finally {
+      setRunningActionIdx(null);
+    }
+  };
+
+  const handleDismissAction = async (msgIdx: number) => {
+    if (!currentChat || !chatId) return;
+    const message = currentChat.messages[msgIdx];
+    if (!message?.proposedAction) return;
+    await patchMessage(chatId, msgIdx, {
+      executedAction: {
+        integrationName: message.proposedAction.integrationName,
+        success: false,
+        dismissed: true,
+        executedAt: Date.now(),
+      },
+    });
   };
 
   const handleRename = async () => {
@@ -353,6 +413,23 @@ function ChatContent() {
                     message.role === "user" ? "items-end" : "items-start"
                   )}
                 >
+                  {message.role === "model" && message.content === "__QUOTA_EXCEEDED__" ? (
+                    <div className="flex flex-col gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200 shadow-sm max-w-sm">
+                      <div className="flex items-center gap-2 text-amber-700">
+                        <AlertCircle className="h-4 w-4 shrink-0" />
+                        <span className="text-sm font-semibold">Monthly query limit reached</span>
+                      </div>
+                      <p className="text-xs text-amber-800 leading-relaxed">
+                        You&apos;ve used all your AI queries for this month. Upgrade your plan to keep asking questions — no waiting for the monthly reset.
+                      </p>
+                      <Button asChild size="sm" className="w-full">
+                        <Link href="/dashboard/billing">
+                          <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+                          View upgrade options
+                        </Link>
+                      </Button>
+                    </div>
+                  ) : (
                   <div
                     className={cn(
                       "p-4 rounded-2xl text-sm leading-relaxed shadow-sm whitespace-pre-wrap",
@@ -363,6 +440,7 @@ function ChatContent() {
                   >
                     {message.content}
                   </div>
+                  )}
 
                   {message.citations && message.citations.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-1">
@@ -384,6 +462,79 @@ function ChatContent() {
                           )}
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Action proposal card */}
+                  {message.role === "model" && message.proposedAction && !message.executedAction && (
+                    <div className="mt-2 border border-primary/30 bg-primary/5 rounded-xl p-3 shadow-sm w-full">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Zap className="w-4 h-4 text-primary shrink-0" />
+                        <span className="text-xs font-semibold text-primary">
+                          Suggested Action: {message.proposedAction.integrationName}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-2">{message.proposedAction.reason}</p>
+                      {Object.entries(message.proposedAction.parameters).length > 0 && (
+                        <div className="bg-muted/60 rounded-lg p-2 mb-3 space-y-1">
+                          {Object.entries(message.proposedAction.parameters).map(([k, v]) => (
+                            <div key={k} className="flex items-start gap-1.5 text-xs">
+                              <code className="font-mono text-primary/70 shrink-0">{k}:</code>
+                              <span className="text-muted-foreground break-all">{String(v)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs px-3"
+                          onClick={() => handleRunAction(idx)}
+                          disabled={runningActionIdx !== null}
+                        >
+                          {runningActionIdx === idx ? (
+                            <><Loader2 className="w-3 h-3 animate-spin mr-1" />Running…</>
+                          ) : (
+                            <><Zap className="w-3 h-3 mr-1" />Run</>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs px-3"
+                          onClick={() => handleDismissAction(idx)}
+                          disabled={runningActionIdx !== null}
+                        >
+                          Dismiss
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Executed action result */}
+                  {message.role === "model" && message.executedAction && (
+                    <div className={cn(
+                      "mt-2 rounded-xl p-3 w-full border text-xs",
+                      message.executedAction.dismissed
+                        ? "border-border bg-muted/40 text-muted-foreground"
+                        : message.executedAction.success
+                          ? "border-green-200 bg-green-50 text-green-800"
+                          : "border-red-200 bg-red-50 text-red-800"
+                    )}>
+                      <div className="flex items-center gap-1.5 font-medium mb-1">
+                        {message.executedAction.dismissed ? (
+                          <><XCircle className="w-3.5 h-3.5" />Action dismissed</>
+                        ) : message.executedAction.success ? (
+                          <><CheckCircle2 className="w-3.5 h-3.5" />{message.executedAction.integrationName} — Success ({message.executedAction.statusCode})</>
+                        ) : (
+                          <><XCircle className="w-3.5 h-3.5" />{message.executedAction.integrationName} — Failed ({message.executedAction.statusCode})</>
+                        )}
+                      </div>
+                      {!message.executedAction.dismissed && message.executedAction.result && (
+                        <pre className="mt-1 whitespace-pre-wrap break-all opacity-80 text-[10px] max-h-24 overflow-auto">
+                          {message.executedAction.result}
+                        </pre>
+                      )}
                     </div>
                   )}
                 </div>

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   collection, query, where, orderBy, onSnapshot,
-  addDoc, updateDoc, deleteDoc, doc, arrayUnion
+  addDoc, updateDoc, deleteDoc, doc, arrayUnion, getDoc
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { ChatSession, ChatMessage } from "@/lib/store";
@@ -66,6 +66,21 @@ export function useChats(tenantId: string | undefined, userId: string | undefine
     });
   };
 
+  /** Patch a single message at msgIdx (e.g. to add executedAction). */
+  const patchMessage = async (
+    chatId: string,
+    msgIdx: number,
+    patch: Partial<ChatMessage>
+  ) => {
+    const snap = await getDoc(doc(db, "chats", chatId));
+    if (!snap.exists()) return;
+    const data = snap.data() as ChatSession;
+    const messages = [...data.messages];
+    if (msgIdx < 0 || msgIdx >= messages.length) return;
+    messages[msgIdx] = JSON.parse(JSON.stringify({ ...messages[msgIdx], ...patch }));
+    await updateDoc(doc(db, "chats", chatId), { messages, updatedAt: Date.now() });
+  };
+
   const renameChat = async (chatId: string, title: string) => {
     await updateDoc(doc(db, "chats", chatId), { title });
   };
@@ -74,5 +89,5 @@ export function useChats(tenantId: string | undefined, userId: string | undefine
     await deleteDoc(doc(db, "chats", chatId));
   };
 
-  return { chats, loading, createChat, addMessage, renameChat, removeChat };
+  return { chats, loading, createChat, addMessage, patchMessage, renameChat, removeChat };
 }

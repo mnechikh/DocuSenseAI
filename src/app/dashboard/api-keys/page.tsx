@@ -5,7 +5,8 @@ export const dynamic = "force-dynamic";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
-import { createApiKey, listApiKeys, revokeApiKey } from "@/lib/auth-actions";
+import { createApiKey, listApiKeys, revokeApiKey, getMyTenantQuota } from "@/lib/auth-actions";
+import { type TenantPlan } from "@/lib/quota-constants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
   KeyRound, Plus, Trash2, Copy, Check, ArrowLeft, LayoutDashboard,
-  ShieldCheck, Clock,
+  ShieldCheck, Clock, Lock, CreditCard,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -51,6 +52,11 @@ export default function ApiKeysPage() {
   // Shown-once dialog for new key
   const [newKeyDialog, setNewKeyDialog] = useState<{ rawKey: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [plan, setPlan] = useState<TenantPlan | null>(null);
+
+  useEffect(() => {
+    getMyTenantQuota().then((q) => setPlan(q.plan)).catch(() => {});
+  }, []);
 
   const loadKeys = useCallback(async () => {
     try {
@@ -63,7 +69,32 @@ export default function ApiKeysPage() {
     }
   }, [toast]);
 
-  useEffect(() => { loadKeys(); }, [loadKeys]);
+  useEffect(() => { if (plan !== null && plan !== "free") loadKeys(); }, [loadKeys, plan]);
+
+  if (plan === null) {
+    return <div className="flex items-center justify-center h-[60vh]"><span className="text-muted-foreground">Loading…</span></div>;
+  }
+
+  if (plan === "free") {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] text-center p-6">
+        <div className="rounded-full bg-muted p-4 mb-4">
+          <Lock className="w-10 h-10 text-muted-foreground" />
+        </div>
+        <h2 className="text-2xl font-bold mb-2">API Keys — Paid Feature</h2>
+        <p className="text-muted-foreground max-w-sm mb-6">
+          Create and manage API keys to integrate Lumxia with your own applications.
+          Available on Starter and Pro plans.
+        </p>
+        <Button onClick={() => router.push("/dashboard/billing")}>
+          <CreditCard className="mr-2 h-4 w-4" />Upgrade to unlock
+        </Button>
+        <Button variant="ghost" className="mt-2" onClick={() => router.push("/dashboard")}>
+          <ArrowLeft className="mr-2 h-4 w-4" />Back to Dashboard
+        </Button>
+      </div>
+    );
+  }
 
   if (currentUser?.role !== "Admin") {
     return (

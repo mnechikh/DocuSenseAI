@@ -6,6 +6,7 @@
 import { ai, mockVectorDb } from '@/ai/genkit';
 import { adminDb } from '@/lib/firebase-admin';
 import { checkAndIncrementQueryQuota } from '@/lib/auth-actions';
+import type { IntegrationRecord } from '@/lib/integration-actions';
 import { z } from 'genkit';
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
@@ -39,6 +40,13 @@ type GetAIPoweredAnswersFromDocumentsInput = z.infer<
   typeof GetAIPoweredAnswersFromDocumentsInputSchema
 >;
 
+const ProposedActionSchema = z.object({
+  integrationId: z.string(),
+  integrationName: z.string(),
+  reason: z.string().describe('One-sentence explanation of why you are proposing this action.'),
+  parameters: z.record(z.unknown()).describe('Parameter values to pass, keyed by parameter name.'),
+});
+
 const GetAIPoweredAnswersFromDocumentsOutputSchema = z.object({
   answer: z.string().describe('Grounded AI answer.'),
   citations: z.array(
@@ -48,6 +56,10 @@ const GetAIPoweredAnswersFromDocumentsOutputSchema = z.object({
     })
   ).describe('Source citations used to produce the answer.'),
   hasContext: z.boolean().describe('Whether relevant chunks were found.'),
+  proposedAction: ProposedActionSchema.optional().describe(
+    'Propose AT MOST ONE integration action when the user query clearly implies they want to DO something external. ' +
+    'Only propose when confident. Leave undefined when purely answering a question.'
+  ),
 });
 type GetAIPoweredAnswersFromDocumentsOutput = z.infer<
   typeof GetAIPoweredAnswersFromDocumentsOutputSchema
@@ -199,6 +211,7 @@ const generateAnswerPrompt = ai.definePrompt({
       context: z.array(DocumentChunkSchema),
       hasContext: z.boolean(),
       documentNames: z.array(z.string()),
+      integrationDescriptions: z.string().optional(),
     }),
   },
   output: { schema: GetAIPoweredAnswersFromDocumentsOutputSchema },
@@ -211,6 +224,9 @@ RULES:
 4. Only if <context> is completely empty AND <available_documents> is empty, say you have no documents to reference.
 5. Never fabricate information not present in the provided context.
 6. Be concise and professional. Use bullet points for lists.
+{{#if integrationDescriptions}}
+7. If the user's query implies they want to TAKE AN ACTION in an external system (not just get information), and a matching integration exists below, propose it in the \"proposedAction\" field. Propose AT MOST ONE action. Never propose an action for a purely informational query.
+{{/if}}
 
 <available_documents>
 {{#each documentNames}}
@@ -229,6 +245,12 @@ RULES:
 [No relevant chunks retrieved for this query.]
 {{/if}}
 </context>
+
+{{#if integrationDescriptions}}
+<available_integrations>
+{{{integrationDescriptions}}}
+</available_integrations>
+{{/if}}
 
 {{#if chatHistory.length}}
 <conversation_history>
@@ -251,6 +273,32 @@ const getAIPoweredAnswersFromDocumentsFlow = ai.defineFlow(
   },
   async (input) => {
     const topK = input.topK ?? 5;
+
+    // ── Load enabled integrations for this tenant (admin SDK, no auth cookie needed)
+    let integrationDescriptions: string | undefined;
+    try {
+      const intSnap = await adminDb
+        .collection('integrations')
+        .where('tenantId', '==', input.tenantId)
+        .where('enabled', '==', true)
+        .get();
+      if (!intSnap.empty) {
+        const lines: string[] = [];
+        intSnap.forEach((doc) => {
+          const r = doc.data() as IntegrationRecord;
+          const params = r.parameters.map((p) => `    - ${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`).join('\n');
+          lines.push(
+            `Integration ID: ${r.id}\n` +
+            `  Name: ${r.name}\n` +
+            `  Description: ${r.description}\n` +
+            (params ? `  Parameters:\n${params}` : '  Parameters: none')
+          );
+        });
+        integrationDescriptions = lines.join('\n\n');
+      }
+    } catch (intErr: unknown) {
+      console.warn('[RAG] Failed to load integrations, continuing without:', (intErr as Error).message);
+    }
 
     // ── Query quota gate: atomically check + increment before calling Gemini ──
     const quotaCheck = await checkAndIncrementQueryQuota(input.tenantId);
@@ -362,13 +410,14 @@ const getAIPoweredAnswersFromDocumentsFlow = ai.defineFlow(
 
     while (attempts < maxAttempts) {
       try {
-        const { output } = await generateAnswerPrompt({ ...input, context, hasContext, documentNames });
+        const { output } = await generateAnswerPrompt({ ...input, context, hasContext, documentNames, integrationDescriptions });
         if (!output) throw new Error('AI returned an empty response.');
 
         console.info('[RAG] Answer generated:', {
           tenantId: input.tenantId,
           citationCount: output.citations.length,
           answerLength: output.answer.length,
+          proposedAction: output.proposedAction?.integrationName,
         });
 
         return { ...output, hasContext };

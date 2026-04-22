@@ -24,6 +24,16 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // integrations — admin SDK only (contains credentials in headers field)
+    match /integrations/{integrationId} {
+      allow read, write: if false;
+    }
+
+    // integrationLogs — admin SDK only
+    match /integrationLogs/{logId} {
+      allow read, write: if false;
+    }
+
     // documents — authenticated users can CRUD documents within their own tenant
     // tenantId is carried as a custom claim set at login time
     match /documents/{docId} {

@@ -26,11 +26,11 @@ env:
   - variable: NEXT_PUBLIC_APP_URL
     value: https://lumxia.com
   - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-    value: pk_test_51TP4iaR65qRiN3MPHDLvsO0C7gXVirkKg1u1IeK9u5nIpeluQpdar12VQ6TFjgBHv1t1qDq4Efp6AgupRx0P63jh00mZjqxM8J
+    value: pk_live_51TP4iNJGbGKxYsh1pd4rMINyDfsofw5sb6uVVQXMe9xqxxE7pRQlUw4PD049JCnqQI1M0KnnmNU9hZFGpJnjYlaf0067qs47MN
   - variable: STRIPE_STARTER_PRICE_ID
-    value: price_1TP540R65qRiN3MPKoM51R9O
+    value: price_1TPSnjJGbGKxYsh1Mf0O2qJ2
   - variable: STRIPE_PRO_PRICE_ID
-    value: price_1TP54PR65qRiN3MPmsptDBWG
+    value: price_1TPSotJGbGKxYsh1XewlznSv
   - variable: STRIPE_SECRET_KEY
     secret: STRIPE_SECRET_KEY
   - variable: STRIPE_WEBHOOK_SECRET

@@ -367,7 +367,7 @@ export default function SupportPage() {
               />
               <FAQ
                 q="How do I reset my password?"
-                a='On the login page, click "Forgot password?" and enter your email. You\'ll receive a reset link within a few minutes. Check your spam folder if it doesn\'t arrive.'
+                a={`On the login page, click "Forgot password?" and enter your email. You'll receive a reset link within a few minutes. Check your spam folder if it doesn't arrive.`}
               />
               <FAQ
                 q="I have a question that isn't answered here."

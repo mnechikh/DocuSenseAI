@@ -331,8 +331,9 @@ export default function Home() {
           </div>
           <p>© 2026 Lumxia. All rights reserved.</p>
           <div className="flex gap-6">
-            <a href="#" className="hover:text-white/50 transition-colors">Privacy</a>
-            <a href="#" className="hover:text-white/50 transition-colors">Terms</a>
+            <Link href="/support" className="hover:text-white/50 transition-colors">Support</Link>
+            <Link href="/privacy" className="hover:text-white/50 transition-colors">Privacy</Link>
+            <Link href="/terms" className="hover:text-white/50 transition-colors">Terms</Link>
           </div>
         </div>
       </footer>

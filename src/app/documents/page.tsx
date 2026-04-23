@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useStore, DocumentRecord } from "@/lib/store";
 import { useDocuments } from "@/hooks/useDocuments";
@@ -34,7 +34,6 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
-  Plus,
   ArrowUpCircle,
   Info,
   ArrowLeft,
@@ -42,6 +41,9 @@ import {
   Search,
   X,
   LayoutDashboard,
+  Upload,
+  FolderOpen,
+  Loader2,
 } from "lucide-react";
 import { uploadAndProcessDocumentForAIAnalysis } from "@/ai/flows/upload-and-process-document-for-ai-analysis";
 import { deleteDocumentChunks } from "@/lib/auth-actions";
@@ -51,6 +53,7 @@ import { getMyTenantQuota } from "@/lib/auth-actions";
 import { PLAN_DEFAULTS } from "@/lib/quota-constants";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import Link from "next/link";
 
@@ -75,6 +78,20 @@ const ALLOWED_TYPES = [
 ];
 
 const MAX_FILE_SIZE_MB = 30;
+
+interface QueueItem {
+  id: string;
+  file: File;
+  status: "queued" | "processing" | "done" | "failed" | "cancelled";
+  failureReason?: string;
+}
+
+const fmtSize = (bytes: number) =>
+  bytes < 1024
+    ? `${bytes} B`
+    : bytes < 1024 * 1024
+    ? `${(bytes / 1024).toFixed(0)} KB`
+    : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 function StatusCell({ doc }: { doc: DocumentRecord }) {
   switch (doc.status) {
@@ -129,11 +146,16 @@ export default function DocumentsPage() {
   } = useDocuments(currentUser?.tenantId);
   const { toast } = useToast();
 
-  const [isUploading, setIsUploading] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<DocumentRecord["status"] | "all">("all");
   const [docQuota, setDocQuota] = useState(PLAN_DEFAULTS.free.docQuota);
+  const [dragActive, setDragActive] = useState(false);
+  const [queueVisible, setQueueVisible] = useState(false);
+  const [queueDisplay, setQueueDisplay] = useState<QueueItem[]>([]);
+  const queueRef = useRef<QueueItem[]>([]);
+  const processingRef = useRef(false);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!currentUser?.tenantId) return;
@@ -141,6 +163,11 @@ export default function DocumentsPage() {
       .then((q) => setDocQuota(q.docQuota))
       .catch((err) => console.error("[Documents] tenant quota fetch:", err));
   }, [currentUser?.tenantId]);
+
+  // Apply non-standard webkitdirectory attribute via ref
+  useEffect(() => {
+    folderInputRef.current?.setAttribute("webkitdirectory", "");
+  }, []);
 
   const allTenantDocs = documents;
 
@@ -186,7 +213,7 @@ export default function DocumentsPage() {
   const processFile = async (
     file: File,
     docId: string
-  ): Promise<void> => {
+  ): Promise<{ ok: boolean; reason?: string }> => {
     const processingStart = Date.now();
     try {
       // Read as base64 data URI on the client so the server action doesn't need to
@@ -228,9 +255,11 @@ export default function DocumentsPage() {
           title: "Document Indexed",
           description: `${file.name} — ${result.chunkCount} chunks in ${(processingMs / 1000).toFixed(1)}s`,
         });
+        return { ok: true };
       } else {
         await updateDocument(docId, { status: "failed", failureReason: result.message });
         toast({ title: "Processing Failed", description: result.message, variant: "destructive" });
+        return { ok: false, reason: result.message };
       }
     } catch (error: unknown) {
       const rawMsg =
@@ -245,54 +274,137 @@ export default function DocumentsPage() {
       console.error("[Documents] processFile error:", error);
       await updateDocument(docId, { status: "failed", failureReason: msg });
       toast({ title: "Upload Error", description: msg, variant: "destructive" });
+      return { ok: false, reason: msg };
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = e.target.files;
-    e.target.value = "";
-    if (!fileList || fileList.length === 0) return;
+  // ── Queue helpers ────────────────────────────────────────────────
 
-    // Client-side quota gate — prevents orphaned "uploaded" docs and gives instant UX
-    if (quotaFull) {
-      toast({
-        title: "Document quota reached",
-        description: `Your plan allows ${docQuota} document${docQuota !== 1 ? "s" : ""}. Remove some documents or contact your administrator.`,
-        variant: "destructive",
+  const updateQueueItem = (id: string, updates: Partial<QueueItem>) => {
+    queueRef.current = queueRef.current.map((i) =>
+      i.id === id ? { ...i, ...updates } : i
+    );
+    setQueueDisplay([...queueRef.current]);
+  };
+
+  const startProcessing = async () => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const next = queueRef.current.find((i) => i.status === "queued");
+      if (!next) break;
+      updateQueueItem(next.id, { status: "processing" });
+      const result = await processFile(next.file, next.id);
+      updateQueueItem(next.id, {
+        status: result.ok ? "done" : "failed",
+        failureReason: result.ok ? undefined : result.reason,
       });
-      return;
+    }
+    processingRef.current = false;
+  };
+
+  const extractZip = async (zipFile: File): Promise<File[]> => {
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(zipFile);
+    const EXT_MIME: Record<string, string> = {
+      pdf: "application/pdf",
+      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      xls: "application/vnd.ms-excel",
+      txt: "text/plain",
+      csv: "text/csv",
+      md: "text/markdown",
+      html: "text/html",
+      htm: "text/html",
+      json: "application/json",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      png: "image/png",
+      webp: "image/webp",
+      gif: "image/gif",
+    };
+    const files: File[] = [];
+    const tasks: Promise<void>[] = [];
+    zip.forEach((relativePath, entry) => {
+      if (entry.dir || relativePath.startsWith("__MACOSX") || relativePath.startsWith(".")) return;
+      const ext = relativePath.split(".").pop()?.toLowerCase() ?? "";
+      if (!EXT_MIME[ext]) return;
+      tasks.push(
+        entry.async("blob").then((blob) => {
+          const name = relativePath.split("/").pop() ?? relativePath;
+          files.push(new File([blob], name, { type: EXT_MIME[ext] }));
+        })
+      );
+    });
+    await Promise.all(tasks);
+    return files;
+  };
+
+  const getFilesFromEntry = async (entry: FileSystemEntry): Promise<File[]> => {
+    if (entry.isFile) {
+      return new Promise((resolve) =>
+        (entry as FileSystemFileEntry).file((f) => resolve([f]), () => resolve([]))
+      );
+    }
+    if (entry.isDirectory) {
+      return new Promise((resolve) => {
+        const reader = (entry as FileSystemDirectoryEntry).createReader();
+        const all: File[] = [];
+        const readBatch = () => {
+          reader.readEntries(async (entries) => {
+            if (entries.length === 0) return resolve(all);
+            const nested = await Promise.all(entries.map(getFilesFromEntry));
+            all.push(...nested.flat());
+            readBatch();
+          }, () => resolve(all));
+        };
+        readBatch();
+      });
+    }
+    return [];
+  };
+
+  const enqueueFiles = async (rawFiles: File[]) => {
+    const flatFiles: File[] = [];
+    for (const f of rawFiles) {
+      if (f.type === "application/zip" || f.name.toLowerCase().endsWith(".zip")) {
+        try {
+          const extracted = await extractZip(f);
+          flatFiles.push(...extracted);
+          if (extracted.length === 0)
+            toast({ title: "Empty ZIP", description: `${f.name}: no supported files found inside`, variant: "destructive" });
+        } catch {
+          toast({ title: "ZIP Error", description: `Could not extract ${f.name}`, variant: "destructive" });
+        }
+      } else {
+        flatFiles.push(f);
+      }
     }
 
-    const files = Array.from(fileList);
-    const remaining = docQuota - quotaUsed;
-    const validEntries: { file: File; docId: string }[] = [];
+    const activeInQueue = queueRef.current.filter(
+      (i) => i.status === "queued" || i.status === "processing"
+    ).length;
+    const remaining = Math.max(0, docQuota - quotaUsed - activeInQueue);
+    const newItems: QueueItem[] = [];
+    let skippedQuota = 0;
 
-    for (const file of files) {
+    for (const file of flatFiles) {
       if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-        toast({ title: "File too large", description: `${file.name}: max ${MAX_FILE_SIZE_MB} MB.`, variant: "destructive" });
+        toast({ title: "File too large", description: `${file.name}: max ${MAX_FILE_SIZE_MB} MB`, variant: "destructive" });
         continue;
       }
       if (!ALLOWED_TYPES.includes(file.type)) {
-        toast({ title: "Unsupported file type", description: `${file.name}: supported formats are PDF, DOCX, TXT, CSV, XLSX.`, variant: "destructive" });
+        toast({ title: "Unsupported type", description: `${file.name}: skipped`, variant: "destructive" });
         continue;
       }
-
-      if (validEntries.length >= remaining) {
-        toast({
-          title: "Some files skipped",
-          description: `Only ${remaining} slot${remaining !== 1 ? "s" : ""} available. The first ${remaining} valid file${remaining !== 1 ? "s were" : " was"} queued.`,
-          variant: "destructive",
-        });
-        break;
-      }
-
+      if (newItems.length >= remaining) { skippedQuota++; continue; }
       const docId = crypto.randomUUID();
       const readableType = file.type
         .split("/")[1]
         .toUpperCase()
         .replace("VND.OPENXMLFORMATS-OFFICEDOCUMENT.WORDPROCESSINGML.DOCUMENT", "DOCX")
         .replace("VND.OPENXMLFORMATS-OFFICEDOCUMENT.SPREADSHEETML.SHEET", "XLSX");
-
       await addDocumentToFirestore({
         id: docId,
         tenantId: currentUser.tenantId,
@@ -301,19 +413,55 @@ export default function DocumentsPage() {
         status: "uploaded",
         timestamp: Date.now(),
       });
-
-      validEntries.push({ file, docId });
+      newItems.push({ id: docId, file, status: "queued" });
     }
 
-    if (validEntries.length === 0) return;
+    if (skippedQuota > 0)
+      toast({ title: "Quota limit", description: `${skippedQuota} file${skippedQuota > 1 ? "s" : ""} skipped — quota reached`, variant: "destructive" });
+    if (newItems.length === 0) return;
 
-    // Sequential processing — each file completes (Firestore write + quota increment)
-    // before the next quota check runs, eliminating the parallel race condition.
-    setIsUploading(true);
-    for (const { file, docId } of validEntries) {
-      await processFile(file, docId);
+    queueRef.current = [...queueRef.current, ...newItems];
+    setQueueDisplay([...queueRef.current]);
+    setQueueVisible(true);
+    startProcessing();
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragActive(false);
+    if (quotaFull) return;
+    const items = Array.from(e.dataTransfer.items);
+    const promises: Promise<File[]>[] = [];
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry?.();
+      if (entry) {
+        promises.push(getFilesFromEntry(entry));
+      } else if (item.kind === "file") {
+        const f = item.getAsFile();
+        if (f) promises.push(Promise.resolve([f]));
+      }
     }
-    setIsUploading(false);
+    const all = (await Promise.all(promises)).flat();
+    await enqueueFiles(all);
+  };
+
+  const handleBrowseFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    e.target.value = "";
+    if (!fileList || fileList.length === 0) return;
+    await enqueueFiles(Array.from(fileList));
+  };
+
+  const handleRetryQueueItem = async (item: QueueItem) => {
+    updateQueueItem(item.id, { status: "queued", failureReason: undefined });
+    if (!processingRef.current) startProcessing();
+  };
+
+  const cancelRemaining = () => {
+    queueRef.current = queueRef.current.map((i) =>
+      i.status === "queued" ? { ...i, status: "cancelled" as const } : i
+    );
+    setQueueDisplay([...queueRef.current]);
   };
 
   // Map human-readable fileType label back to MIME type for re-processing
@@ -441,44 +589,169 @@ export default function DocumentsPage() {
             </span>
           </div>
         </div>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex items-center gap-3 shrink-0">
+          <span className={`text-xs font-medium tabular-nums ${quotaFull ? "text-destructive" : "text-muted-foreground"}`}>
+            {quotaUsed}/{docQuota} docs
+          </span>
           <Button variant="outline" size="sm" asChild>
             <Link href="/dashboard">
               <ArrowLeft className="mr-1.5 h-4 w-4" />
               Back to Dashboard
             </Link>
           </Button>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Input
-                type="file"
-                className="hidden"
-                id="doc-upload"
-                onChange={handleFileUpload}
-                disabled={isUploading || quotaFull}
-                accept=".pdf,.docx,.xlsx,.xls,.txt,.csv,.md,.html,.htm,.json,.jpg,.jpeg,.png,.webp,.gif"
-                multiple
-              />
-              <Button asChild className="bg-primary hover:bg-primary/90 shadow-md" disabled={isUploading || quotaFull}>
-                <label
-                  htmlFor="doc-upload"
-                  className={(isUploading || quotaFull) ? "cursor-not-allowed opacity-70 flex items-center" : "cursor-pointer flex items-center"}
-                >
-                  {isUploading ? (
-                    <Clock className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Plus className="mr-2 h-4 w-4" />
-                  )}
-                  {isUploading ? "Uploading…" : "Add Documents"}
-                </label>
-              </Button>
-              <span className={`text-xs font-medium tabular-nums ${quotaFull ? "text-destructive" : "text-muted-foreground"}`}>
-                {quotaUsed}/{docQuota} docs
-              </span>
-            </div>
-          </div>
         </div>
       </div>
+
+      {/* Drag-and-drop upload zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); if (!quotaFull) setDragActive(true); }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={handleDrop}
+        className={`rounded-xl border-2 border-dashed transition-all duration-150 p-8 text-center ${
+          quotaFull
+            ? "opacity-50 cursor-not-allowed border-border"
+            : dragActive
+            ? "border-primary bg-primary/5 scale-[1.005]"
+            : "border-border hover:border-primary/50 hover:bg-accent/5 cursor-pointer"
+        }`}
+      >
+        <Upload className="w-8 h-8 mx-auto mb-3 text-muted-foreground" />
+        <p className="font-medium text-sm mb-1">
+          {dragActive ? "Drop to upload" : "Drop files, folders, or a .zip here"}
+        </p>
+        <p className="text-xs text-muted-foreground mb-5">or browse from your computer</p>
+        <div className="flex items-center justify-center gap-3">
+          {/* Browse files */}
+          <input
+            type="file"
+            id="browse-files"
+            className="hidden"
+            multiple
+            disabled={quotaFull}
+            accept=".pdf,.docx,.xlsx,.xls,.txt,.csv,.md,.html,.htm,.json,.jpg,.jpeg,.png,.webp,.gif,.zip"
+            onChange={handleBrowseFiles}
+          />
+          <Button size="sm" variant="outline" disabled={quotaFull} asChild>
+            <label htmlFor="browse-files" className={quotaFull ? "cursor-not-allowed" : "cursor-pointer"}>
+              <FileText className="mr-1.5 w-3.5 h-3.5" />
+              Browse Files
+            </label>
+          </Button>
+          {/* Browse folder */}
+          <input
+            ref={folderInputRef}
+            type="file"
+            id="browse-folder"
+            className="hidden"
+            multiple
+            disabled={quotaFull}
+            onChange={handleBrowseFiles}
+          />
+          <Button size="sm" variant="outline" disabled={quotaFull} asChild>
+            <label htmlFor="browse-folder" className={quotaFull ? "cursor-not-allowed" : "cursor-pointer"}>
+              <FolderOpen className="mr-1.5 w-3.5 h-3.5" />
+              Browse Folder
+            </label>
+          </Button>
+        </div>
+        {quotaFull && (
+          <p className="text-xs text-destructive mt-3 font-medium">
+            Document quota reached ({quotaUsed}/{docQuota}). Delete documents to free slots.
+          </p>
+        )}
+      </div>
+
+      {/* Upload queue panel */}
+      {queueVisible && queueDisplay.length > 0 && (
+        <Card className="border-none shadow-sm overflow-hidden">
+          <CardHeader className="bg-accent/5 border-b pb-3 pt-4 px-5">
+            <div className="flex items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-3 mb-2">
+                  <CardTitle className="text-sm">Upload Queue</CardTitle>
+                  <span className="text-xs text-muted-foreground">
+                    {queueDisplay.filter((i) => i.status === "done").length} of{" "}
+                    {queueDisplay.filter((i) => i.status !== "cancelled").length} complete
+                  </span>
+                  {queueDisplay.some((i) => i.status === "processing") && (
+                    <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin" />
+                  )}
+                </div>
+                <Progress
+                  value={
+                    (queueDisplay.filter((i) => i.status === "done" || i.status === "failed").length /
+                      Math.max(1, queueDisplay.filter((i) => i.status !== "cancelled").length)) *
+                    100
+                  }
+                  className="h-1.5"
+                />
+              </div>
+              <div className="flex gap-2 shrink-0">
+                {queueDisplay.some((i) => i.status === "queued") && (
+                  <Button size="sm" variant="ghost" onClick={cancelRemaining} className="h-7 text-xs text-muted-foreground">
+                    Cancel remaining
+                  </Button>
+                )}
+                {queueDisplay.every((i) => i.status !== "queued" && i.status !== "processing") && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0"
+                    onClick={() => {
+                      setQueueVisible(false);
+                      queueRef.current = [];
+                      setQueueDisplay([]);
+                    }}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="max-h-52 overflow-y-auto divide-y">
+              {queueDisplay.map((item) => (
+                <div key={item.id} className="flex items-center gap-3 px-5 py-2.5">
+                  <div className="shrink-0 w-5 flex items-center">
+                    {item.status === "queued" && <Clock className="w-3.5 h-3.5 text-muted-foreground" />}
+                    {item.status === "processing" && <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin" />}
+                    {item.status === "done" && <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />}
+                    {item.status === "failed" && <AlertCircle className="w-3.5 h-3.5 text-destructive" />}
+                    {item.status === "cancelled" && <X className="w-3.5 h-3.5 text-muted-foreground opacity-40" />}
+                  </div>
+                  <span className="flex-1 truncate text-xs font-medium" title={item.file.name}>
+                    {item.file.name}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                    {fmtSize(item.file.size)}
+                  </span>
+                  {item.status === "failed" && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {item.failureReason && (
+                        <span className="text-[10px] text-destructive max-w-[120px] truncate" title={item.failureReason}>
+                          {item.failureReason}
+                        </span>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-[10px] text-blue-600 hover:text-blue-700"
+                        onClick={() => handleRetryQueueItem(item)}
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  )}
+                  {item.status === "cancelled" && (
+                    <Badge variant="secondary" className="text-[10px] opacity-50">Cancelled</Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

@@ -9,7 +9,9 @@
     "build": "NODE_ENV=production next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "loadtest:upload": "node load-tests/upload.mjs",
+    "loadtest:query": "node load-tests/query.mjs"
   },
   "dependencies": {
     "@genkit-ai/firebase": "^1.32.0",
@@ -44,6 +46,7 @@
     "firebase": "^11.9.1",
     "firebase-admin": "^13.8.0",
     "genkit": "^1.28.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.475.0",
     "mammoth": "^1.12.0",
     "next": "15.5.9",

@@ -19,6 +19,7 @@ import {
   BookOpen,
   Plug2,
   CreditCard,
+  LifeBuoy,
 } from "lucide-react";
 import {
   Sidebar,
@@ -68,6 +69,7 @@ export function DashboardSidebar({ claimsReady }: { claimsReady: boolean }) {
     { label: "Integrations", href: "/dashboard/integrations", icon: Plug2, hidden: !isAdmin },
     { label: "API Docs", href: "/dashboard/api-docs", icon: BookOpen },
     { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
+    { label: "Support", href: "/support", icon: LifeBuoy },
   ];
 
   const isActive = (href: string) => {

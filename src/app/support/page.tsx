@@ -371,7 +371,7 @@ export default function SupportPage() {
               />
               <FAQ
                 q="I have a question that isn't answered here."
-                a={<>Email us at <a href="mailto:support@lumxia.com" className="underline hover:text-white transition-colors">support@lumxia.com</a> and we'll get back to you as soon as possible.</>}
+                a={<>Email us at <a href="mailto:support@intellaqc.com" className="underline hover:text-white transition-colors">support@intellaqc.com</a> and we&apos;ll get back to you as soon as possible.</>}
               />
             </div>
           </Section>
@@ -384,11 +384,11 @@ export default function SupportPage() {
             <h3 className="text-xl font-bold mb-2">Still need help?</h3>
             <p className="text-white/50 mb-6 text-[15px]">Our support team typically responds within one business day.</p>
             <a
-              href="mailto:support@lumxia.com"
+              href="mailto:support@intellaqc.com"
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
               style={{ background: LUMXIA_GRADIENT, boxShadow: "0 4px 16px rgba(124,140,255,0.3)" }}
             >
-              Email support@lumxia.com
+              Email support@intellaqc.com
             </a>
           </div>
 

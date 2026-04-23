@@ -148,7 +148,7 @@ export default function PrivacyPage() {
               <li>Data portability — receive your data in a machine-readable format.</li>
               <li>Withdraw consent at any time where processing is based on consent.</li>
             </ul>
-            <p className="mt-4">To exercise these rights, contact us at <strong className="text-white/90">privacy@lumxia.com</strong>.</p>
+            <p className="mt-4">To exercise these rights, contact us at <strong className="text-white/90">support@intellaqc.com</strong>.</p>
           </Section>
 
           <Section title="9. Cookies">
@@ -175,7 +175,7 @@ export default function PrivacyPage() {
             </p>
             <div className="mt-4 p-4 rounded-xl border border-white/10 bg-white/5 space-y-1 text-sm">
               <p className="text-white/90 font-medium">IntelliAQ Consulting / Lumxia</p>
-              <p>Email: <a href="mailto:privacy@lumxia.com" className="underline hover:text-white transition-colors">privacy@lumxia.com</a></p>
+              <p>Email: <a href="mailto:support@intellaqc.com" className="underline hover:text-white transition-colors">support@intellaqc.com</a></p>
               <p>Website: <a href="https://lumxia.com" className="underline hover:text-white transition-colors">lumxia.com</a></p>
             </div>
           </Section>

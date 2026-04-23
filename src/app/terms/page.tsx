@@ -97,7 +97,7 @@ export default function TermsPage() {
 
           <Section title="3. Account Registration">
             <p>
-              To use the Service, you must create an account with a valid email address. You are responsible for maintaining the confidentiality of your login credentials and for all activity that occurs under your account. You agree to notify us immediately at <strong className="text-white/90">support@lumxia.com</strong> of any unauthorized use of your account.
+              To use the Service, you must create an account with a valid email address. You are responsible for maintaining the confidentiality of your login credentials and for all activity that occurs under your account. You agree to notify us immediately at <strong className="text-white/90">support@intellaqc.com</strong> of any unauthorized use of your account.
             </p>
             <p>
               We reserve the right to suspend or terminate accounts that violate these Terms, provide false information, or engage in abusive or fraudulent activity.
@@ -209,7 +209,7 @@ export default function TermsPage() {
             </p>
             <div className="mt-4 p-4 rounded-xl border border-white/10 bg-white/5 space-y-1 text-sm">
               <p className="text-white/90 font-medium">IntelliAQ Consulting / Lumxia</p>
-              <p>Email: <a href="mailto:legal@lumxia.com" className="underline hover:text-white transition-colors">legal@lumxia.com</a></p>
+              <p>Email: <a href="mailto:support@intellaqc.com" className="underline hover:text-white transition-colors">support@intellaqc.com</a></p>
               <p>Website: <a href="https://lumxia.com" className="underline hover:text-white transition-colors">lumxia.com</a></p>
             </div>
           </Section>

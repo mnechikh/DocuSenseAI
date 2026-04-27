@@ -13,8 +13,15 @@ import {
   CheckCircle2,
   Upload,
   Sparkles,
-  Database,
   Shield,
+  Zap,
+  FolderOpen,
+  Clock,
+  AlertTriangle,
+  Lock,
+  Key,
+  Building2,
+  Play,
 } from "lucide-react";
 
 const LUMXIA_GRADIENT = "linear-gradient(135deg, #7C8CFF 0%, #9B8CFF 50%, #C084FC 100%)";
@@ -88,8 +95,10 @@ export default function Home() {
           <span className="text-[17px] font-bold tracking-tight text-[#F9FAFB]">Lumxia</span>
         </div>
         <div className="hidden md:flex items-center gap-8 text-sm text-white/40">
-          <a href="#features" className="hover:text-white/80 transition-colors">Features</a>
           <a href="#how-it-works" className="hover:text-white/80 transition-colors">How it works</a>
+          <a href="#features" className="hover:text-white/80 transition-colors">Features</a>
+          <a href="#pricing" className="hover:text-white/80 transition-colors">Pricing</a>
+          <Link href="/demo" className="hover:text-white/80 transition-colors">Demo</Link>
         </div>
         <div className="flex items-center gap-3">
           <Link href="/login">
@@ -103,7 +112,7 @@ export default function Home() {
               className="text-white text-sm h-9 px-5 border-0 rounded-xl"
               style={{ background: LUMXIA_GRADIENT, boxShadow: "0 4px 16px rgba(124,140,255,0.3)" }}
             >
-              Get started <ArrowRight className="ml-1.5 w-3.5 h-3.5" />
+              Start Free <ArrowRight className="ml-1.5 w-3.5 h-3.5" />
             </Button>
           </Link>
         </div>
@@ -117,48 +126,49 @@ export default function Home() {
             style={{ background: "rgba(124,140,255,0.08)", borderColor: "rgba(124,140,255,0.2)", color: "#9B8CFF" }}
           >
             <Sparkles className="w-3 h-3" />
-            Powered by Gemini 2.5 · Semantic AI · Multi-tenant isolation
+            AI-powered knowledge system for teams · Powered by Gemini 2.5
           </div>
 
-          <h1 className="text-5xl md:text-[72px] font-extrabold tracking-tight leading-[1.04] mb-6">
-            Your knowledge,
+          <h1 className="text-5xl md:text-[68px] font-extrabold tracking-tight leading-[1.05] mb-6">
+            Your company&apos;s knowledge.
             <br />
             <span style={{ background: LUMXIA_GRADIENT, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
-              always within reach.
+              Instantly accessible.
             </span>
           </h1>
-          <p className="text-lg md:text-xl text-[#9CA3AF] max-w-2xl mx-auto mb-10 leading-relaxed">
-            Upload any document. Ask anything in plain language.
-            Lumxia transforms your team&apos;s files into a calm, always-on AI knowledge companion.
+          <p className="text-lg md:text-xl text-[#9CA3AF] max-w-2xl mx-auto mb-12 leading-relaxed">
+            Lumxia turns your documents into a secure, AI-powered knowledge system your team can search, ask, and learn from—instantly.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/login">
               <Button
                 size="lg"
-                className="text-white text-base px-8 h-12 border-0 rounded-xl"
-                style={{ background: LUMXIA_GRADIENT, boxShadow: "0 8px 28px rgba(124,140,255,0.35)" }}
+                className="text-white text-base px-10 h-12 border-0 rounded-xl"
+                style={{ background: LUMXIA_GRADIENT, boxShadow: "0 8px 32px rgba(124,140,255,0.45)" }}
               >
-                Start for free <ArrowRight className="ml-2 w-4 h-4" />
+                Start Free <ArrowRight className="ml-2 w-4 h-4" />
               </Button>
             </Link>
-            <Link href="/login">
+            <Link href="/demo">
               <Button
                 size="lg"
                 variant="outline"
-                className="text-white/60 hover:text-white border-white/10 hover:border-white/20 bg-transparent hover:bg-white/5 text-base px-8 h-12 rounded-xl"
+                className="text-white/70 hover:text-white border-white/15 hover:border-white/30 bg-transparent hover:bg-white/5 text-base px-8 h-12 rounded-xl gap-2"
               >
-                Sign in to dashboard
+                <Play className="w-4 h-4" />
+                Try Demo
               </Button>
             </Link>
           </div>
+          <p className="text-xs text-white/30 mt-4">No credit card required</p>
 
           {/* Stats */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-12 mt-20">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-10 mt-20">
             {[
               { val: "< 15s", label: "Avg. index time" },
-              { val: "PDF · DOCX · XLSX", label: "Supported formats" },
-              { val: "Semantic AI", label: "Query understanding" },
+              { val: "Multi-tenant", label: "Enterprise architecture" },
+              { val: "REST API", label: "Integration ready" },
             ].map((s) => (
               <div key={s.label} className="flex flex-col items-center gap-1.5">
                 <span className="text-2xl font-bold text-[#F9FAFB]">{s.val}</span>
@@ -169,75 +179,26 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── FEATURES ────────────────────────────────────────────── */}
-      <section id="features" className="relative z-10 px-6 md:px-16 py-28 border-t border-white/5">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight text-[#F9FAFB]">
-              Built for how humans actually work
-            </h2>
-            <p className="text-[#9CA3AF] text-base max-w-xl mx-auto">
-              No training. No complex pipelines. Just a calm, intelligent assistant that knows your documents inside out.
-            </p>
+      {/* ── PROBLEM ─────────────────────────────────────────────── */}
+      <section className="relative z-10 px-6 md:px-16 py-24 border-t border-white/5">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-14">
+            <p className="text-xs uppercase tracking-widest text-[#7C8CFF] mb-4 font-semibold">Sound familiar?</p>
+            <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-[#F9FAFB]">Your knowledge is scattered—and it&apos;s costing you time.</h2>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
             {[
-              {
-                iconBg: "rgba(124,140,255,0.12)",
-                iconColor: "#7C8CFF",
-                Icon: Sparkles,
-                title: "Semantic Understanding",
-                desc: "Asks about 'pricing' — finds 'Schedule of Rates', '$50,000', 'contract value'. Context-aware, not just keyword matching.",
-              },
-              {
-                iconBg: "rgba(155,140,255,0.12)",
-                iconColor: "#9B8CFF",
-                Icon: FileText,
-                title: "Any Document Format",
-                desc: "PDF, DOCX, XLSX, CSV, TXT. Scanned PDFs get Gemini Vision OCR automatically when text extraction isn't possible.",
-              },
-              {
-                iconBg: "rgba(192,132,252,0.12)",
-                iconColor: "#C084FC",
-                Icon: Shield,
-                title: "Fully Isolated Tenants",
-                desc: "Every organisation lives in its own secure silo. Firestore security rules guarantee zero cross-tenant data access.",
-              },
-              {
-                iconBg: "rgba(124,140,255,0.12)",
-                iconColor: "#7C8CFF",
-                Icon: MessageSquare,
-                title: "Conversational Chat",
-                desc: "Chat with your entire knowledge base. Every answer includes the exact source document it came from.",
-              },
-              {
-                iconBg: "rgba(155,140,255,0.12)",
-                iconColor: "#9B8CFF",
-                Icon: Upload,
-                title: "Fast Indexing",
-                desc: "Local PDF parsing + parallel upload. A 4 MB document is extracted, chunked, embedded and ready in under 15 seconds.",
-              },
-              {
-                iconBg: "rgba(192,132,252,0.12)",
-                iconColor: "#C084FC",
-                Icon: Users,
-                title: "Team Access Control",
-                desc: "Invite users, assign Admin or User roles, approve or suspend accounts — all from the built-in admin panel.",
-              },
-            ].map((f) => (
-              <div
-                key={f.title}
-                className="group p-6 rounded-2xl border border-white/6 transition-all duration-300"
-                style={{ background: "rgba(31,41,55,0.35)" }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(124,140,255,0.2)"; (e.currentTarget as HTMLDivElement).style.background = "rgba(31,41,55,0.6)"; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.06)"; (e.currentTarget as HTMLDivElement).style.background = "rgba(31,41,55,0.35)"; }}
-              >
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-5" style={{ background: f.iconBg }}>
-                  <f.Icon className="w-5 h-5" style={{ color: f.iconColor }} />
+              { Icon: FolderOpen, color: "#F87171", bg: "rgba(248,113,113,0.08)", border: "rgba(248,113,113,0.18)", title: "Documents spread across tools", desc: "Slack, Drive, email, Notion — your knowledge is everywhere and nowhere." },
+              { Icon: MessageSquare, color: "#FBBF24", bg: "rgba(251,191,36,0.07)", border: "rgba(251,191,36,0.18)", title: "Repeated internal questions", desc: "The same questions get asked over and over because answers are buried." },
+              { Icon: Clock, color: "#F87171", bg: "rgba(248,113,113,0.08)", border: "rgba(248,113,113,0.18)", title: "Time wasted searching", desc: "Employees spend 20% of their week hunting for information that already exists." },
+              { Icon: AlertTriangle, color: "#FBBF24", bg: "rgba(251,191,36,0.07)", border: "rgba(251,191,36,0.18)", title: "Knowledge locked in files", desc: "Critical know-how sits in documents nobody can find or search effectively." },
+            ].map((p) => (
+              <div key={p.title} className="p-6 rounded-2xl border text-left" style={{ background: p.bg, borderColor: p.border }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-5" style={{ background: "rgba(0,0,0,0.2)" }}>
+                  <p.Icon className="w-5 h-5" style={{ color: p.color }} />
                 </div>
-                <h3 className="font-semibold text-[#F9FAFB] text-[15px] mb-2">{f.title}</h3>
-                <p className="text-sm text-[#9CA3AF] leading-relaxed">{f.desc}</p>
+                <h3 className="font-semibold text-[#F9FAFB] mb-2 text-sm leading-snug">{p.title}</h3>
+                <p className="text-xs text-[#9CA3AF] leading-relaxed">{p.desc}</p>
               </div>
             ))}
           </div>
@@ -246,75 +207,208 @@ export default function Home() {
 
       {/* ── HOW IT WORKS ────────────────────────────────────────── */}
       <section id="how-it-works" className="relative z-10 px-6 md:px-16 py-24 border-t border-white/5">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-5xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-5xl font-bold mb-4 tracking-tight text-[#F9FAFB]">Up and running in minutes</h2>
-            <p className="text-[#9CA3AF] text-base">No training. No complicated setup. Just upload and ask.</p>
+            <p className="text-xs uppercase tracking-widest text-[#7C8CFF] mb-4 font-semibold">How it works</p>
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight mb-4 text-[#F9FAFB]">From document to answer in seconds</h2>
+            <p className="text-[#9CA3AF]">No setup. No training. Upload and ask.</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             {[
-              { step: "01", Icon: Upload, title: "Upload your documents", desc: "Drag and drop any PDF, Word doc, or spreadsheet. Lumxia accepts the formats your team already works with." },
-              { step: "02", Icon: Sparkles, title: "AI indexes everything", desc: "Lumxia extracts, chunks, and semantically understands every page. Your private knowledge base is ready instantly." },
-              { step: "03", Icon: MessageSquare, title: "Ask anything", desc: "Open the AI chat. Ask any question in natural language. Get precise answers with the source document cited." },
+              { step: "01", Icon: Upload, label: "Upload documents", desc: "PDF, DOCX, XLSX, CSV, images — drag and drop files, folders, or a ZIP archive." },
+              { step: "02", Icon: Sparkles, label: "Lumxia indexes + understands", desc: "Content is extracted, chunked, and semantically embedded. Ready in under 15 seconds." },
+              { step: "03", Icon: MessageSquare, label: "Ask in natural language", desc: "Type any question. No query syntax, no Boolean operators, no learning curve." },
+              { step: "04", Icon: Zap, label: "Get accurate answers instantly", desc: "Precise, grounded answers with source citations from your actual documents.", highlight: true },
             ].map((s) => (
               <div key={s.step} className="flex flex-col">
-                <div className="text-7xl font-black leading-none mb-4 select-none" style={{ color: "rgba(124,140,255,0.08)" }}>{s.step}</div>
-                <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-5" style={{ background: "rgba(124,140,255,0.12)" }}>
-                  <s.Icon className="w-5 h-5" style={{ color: "#9B8CFF" }} />
+                <div className="text-6xl font-black leading-none mb-4 select-none" style={{ color: "rgba(124,140,255,0.07)" }}>{s.step}</div>
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-5" style={{ background: s.highlight ? "rgba(124,140,255,0.22)" : "rgba(124,140,255,0.10)" }}>
+                  <s.Icon className="w-5 h-5" style={{ color: s.highlight ? "#C084FC" : "#9B8CFF" }} />
                 </div>
-                <h3 className="font-semibold text-[#F9FAFB] mb-2">{s.title}</h3>
-                <p className="text-sm text-[#9CA3AF] leading-relaxed">{s.desc}</p>
+                <h3 className="font-semibold text-[#F9FAFB] mb-2 text-sm">{s.label}</h3>
+                <p className="text-xs text-[#9CA3AF] leading-relaxed">{s.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── CHECKLIST ───────────────────────────────────────────── */}
-      <section className="relative z-10 px-6 md:px-16 py-16 border-t border-white/5">
-        <div className="max-w-3xl mx-auto grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {[
-            "PDF, DOCX, XLSX, CSV, TXT support",
-            "Gemini 2.5 Flash semantic AI",
-            "Multi-tenant data isolation",
-            "Role-based access control",
-            "Query expansion for better answers",
-            "Firebase-powered infrastructure",
-          ].map((item) => (
-            <div key={item} className="flex items-center gap-3 text-sm text-[#9CA3AF]">
-              <CheckCircle2 className="w-4 h-4 shrink-0" style={{ color: "#9B8CFF" }} />
-              {item}
-            </div>
-          ))}
+      {/* ── FEATURES ────────────────────────────────────────────── */}
+      <section id="features" className="relative z-10 px-6 md:px-16 py-24 border-t border-white/5">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-16">
+            <p className="text-xs uppercase tracking-widest text-[#7C8CFF] mb-4 font-semibold">Capabilities</p>
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight mb-4 text-[#F9FAFB]">Everything your team needs</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[
+              { Icon: Sparkles, color: "#7C8CFF", bg: "rgba(124,140,255,0.12)", title: "AI-Powered Knowledge Search", desc: "Semantic understanding finds answers your keyword search would miss." },
+              { Icon: Lock, color: "#9B8CFF", bg: "rgba(155,140,255,0.12)", title: "Secure Multi-Tenant Architecture", desc: "Enterprise-grade isolation. Your data never touches another organisation." },
+              { Icon: Users, color: "#C084FC", bg: "rgba(192,132,252,0.12)", title: "Team Access & Role Control", desc: "Admin and User roles with built-in approval, invite, and suspension flows." },
+              { Icon: Key, color: "#7C8CFF", bg: "rgba(124,140,255,0.12)", title: "API-First Platform", desc: "Full REST API with Bearer auth. Integrate, automate, and build on top of Lumxia." },
+              { Icon: Building2, color: "#9B8CFF", bg: "rgba(155,140,255,0.12)", title: "Bulk Upload & Indexing", desc: "Drop a ZIP, drag a folder, or push via API. Lumxia queues and processes everything." },
+              { Icon: FileText, color: "#C084FC", bg: "rgba(192,132,252,0.12)", title: "All Document Formats", desc: "PDF, DOCX, XLSX, CSV, TXT, images — OCR fallback for scanned documents." },
+            ].map((f) => (
+              <div
+                key={f.title}
+                className="p-6 rounded-2xl border border-white/6 transition-all duration-200"
+                style={{ background: "rgba(31,41,55,0.35)" }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(124,140,255,0.22)"; (e.currentTarget as HTMLDivElement).style.background = "rgba(31,41,55,0.65)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.06)"; (e.currentTarget as HTMLDivElement).style.background = "rgba(31,41,55,0.35)"; }}
+              >
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-5" style={{ background: f.bg }}>
+                  <f.Icon className="w-5 h-5" style={{ color: f.color }} />
+                </div>
+                <h3 className="font-semibold text-[#F9FAFB] text-sm mb-1.5">{f.title}</h3>
+                <p className="text-xs text-[#9CA3AF] leading-relaxed">{f.desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* ── CTA ─────────────────────────────────────────────────── */}
+      {/* ── USE CASES ───────────────────────────────────────────── */}
+      <section className="relative z-10 px-6 md:px-16 py-24 border-t border-white/5">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-16">
+            <p className="text-xs uppercase tracking-widest text-[#7C8CFF] mb-4 font-semibold">Use cases</p>
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight mb-4 text-[#F9FAFB]">Real teams. Real results.</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              { Icon: Building2, iconColor: "#7C8CFF", gradient: "linear-gradient(135deg, rgba(124,140,255,0.14), rgba(124,140,255,0.04))", border: "rgba(124,140,255,0.2)", title: "Internal Knowledge Base", desc: "Centralise SOPs, policies, and product specs. Every employee gets instant answers from your authoritative documents.", items: ["Single source of truth", "Always up to date", "Self-serve answers"] },
+              { Icon: Users, iconColor: "#9B8CFF", gradient: "linear-gradient(135deg, rgba(155,140,255,0.14), rgba(155,140,255,0.04))", border: "rgba(155,140,255,0.2)", title: "Employee Onboarding", desc: "New hires ask natural-language questions and get immediate answers from your actual handbooks and training material.", items: ["Faster ramp-up", "Consistent answers", "Reduced manager load"] },
+              { Icon: FileText, iconColor: "#C084FC", gradient: "linear-gradient(135deg, rgba(192,132,252,0.14), rgba(192,132,252,0.04))", border: "rgba(192,132,252,0.2)", title: "Document Intelligence", desc: "Upload contracts, reports, or research. Extract key clauses, obligations, and risks in seconds—not hours of manual review.", items: ["Clause extraction", "Risk identification", "Cross-doc analysis"] },
+            ].map((u) => (
+              <div key={u.title} className="p-6 rounded-2xl border flex flex-col" style={{ background: u.gradient, borderColor: u.border }}>
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-5" style={{ background: "rgba(0,0,0,0.2)" }}>
+                  <u.Icon className="w-5 h-5" style={{ color: u.iconColor }} />
+                </div>
+                <h3 className="font-semibold text-[#F9FAFB] text-base mb-3">{u.title}</h3>
+                <p className="text-sm text-[#9CA3AF] leading-relaxed mb-5">{u.desc}</p>
+                <ul className="mt-auto space-y-2">
+                  {u.items.map((item) => (
+                    <li key={item} className="flex items-center gap-2 text-xs text-[#9CA3AF]">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: u.iconColor }} />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── DIFFERENTIATION ─────────────────────────────────────── */}
+      <section className="relative z-10 px-6 md:px-16 py-24 border-t border-white/5">
+        <div className="max-w-4xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+            <div>
+              <p className="text-xs uppercase tracking-widest text-[#7C8CFF] mb-4 font-semibold">Why Lumxia</p>
+              <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-6 text-[#F9FAFB]">Built for teams—not just individuals</h2>
+              <p className="text-[#9CA3AF] text-sm leading-relaxed mb-8">
+                Most AI document tools are built for solo use. Lumxia is architected from the ground up for collaboration, security, and scale.
+              </p>
+              <Link href="/login">
+                <Button className="text-white border-0 rounded-xl px-7 h-11" style={{ background: LUMXIA_GRADIENT, boxShadow: "0 4px 20px rgba(124,140,255,0.35)" }}>
+                  Get started free <ArrowRight className="ml-2 w-4 h-4" />
+                </Button>
+              </Link>
+            </div>
+            <div className="space-y-4">
+              {[
+                { label: "Multi-tenant by design", desc: "Every workspace is cryptographically isolated" },
+                { label: "Role-based access control", desc: "Granular Admin and User permissions" },
+                { label: "Works across ALL document types", desc: "PDF, DOCX, XLSX, images, and more" },
+                { label: "API-ready for integration", desc: "Connect to your existing tools and workflows" },
+                { label: "Scales with your organisation", desc: "From 1 user to enterprise teams" },
+              ].map((b) => (
+                <div key={b.label} className="flex items-start gap-3 p-4 rounded-xl border border-white/5" style={{ background: "rgba(31,41,55,0.35)" }}>
+                  <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "#9B8CFF" }} />
+                  <div>
+                    <p className="text-sm font-medium text-[#F9FAFB]">{b.label}</p>
+                    <p className="text-xs text-[#9CA3AF]">{b.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── PRICING ─────────────────────────────────────────────── */}
+      <section id="pricing" className="relative z-10 px-6 md:px-16 py-24 border-t border-white/5">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-16">
+            <p className="text-xs uppercase tracking-widest text-[#7C8CFF] mb-4 font-semibold">Pricing</p>
+            <h2 className="text-3xl md:text-5xl font-bold tracking-tight mb-4 text-[#F9FAFB]">Simple, transparent pricing</h2>
+            <p className="text-[#9CA3AF]">Start free. Scale when you&apos;re ready. No hidden fees.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+            {[
+              { name: "Free", price: "$0", period: "forever", tagline: "For individuals", highlight: false, cta: "Start Free", features: ["5 documents", "20 AI queries / month", "All file formats", "AI chat interface", "Secure workspace isolation"] },
+              { name: "Starter", price: "$29", period: "/ month", tagline: "For small teams", highlight: true, cta: "Get Starter", features: ["25 documents", "500 AI queries / month", "1 GB storage", "REST API access", "Role-based access control", "Priority support"] },
+              { name: "Pro", price: "$99", period: "/ month", tagline: "For growing organisations", highlight: false, cta: "Get Pro", features: ["999 documents", "2,000 AI queries / month", "10 GB storage", "Full REST API + webhooks", "Bulk ZIP / folder ingestion", "Admin user management", "Priority support"] },
+            ].map((plan) => (
+              <div key={plan.name} className="p-7 rounded-2xl border flex flex-col" style={{ background: plan.highlight ? "rgba(124,140,255,0.10)" : "rgba(31,41,55,0.35)", borderColor: plan.highlight ? "rgba(124,140,255,0.35)" : "rgba(255,255,255,0.06)", boxShadow: plan.highlight ? "0 0 40px rgba(124,140,255,0.12)" : "none" }}>
+                {plan.highlight && (
+                  <div className="text-[10px] uppercase tracking-widest font-bold mb-4 self-start px-2.5 py-1 rounded-full" style={{ background: "rgba(124,140,255,0.2)", color: "#9B8CFF" }}>Most popular</div>
+                )}
+                <p className="text-[10px] uppercase tracking-widest text-[#6B7280] mb-1">{plan.tagline}</p>
+                <p className="text-xs uppercase tracking-widest text-[#9CA3AF] mb-1">{plan.name}</p>
+                <div className="flex items-end gap-1 mb-2">
+                  <span className="text-4xl font-extrabold text-[#F9FAFB]">{plan.price}</span>
+                  <span className="text-[#9CA3AF] text-sm mb-1">{plan.period}</span>
+                </div>
+                <ul className="space-y-2.5 mb-8 mt-4">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-center gap-2.5 text-sm text-[#D1D5DB]">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" style={{ color: plan.highlight ? "#9B8CFF" : "#4B5563" }} />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/login" className="mt-auto">
+                  <Button className="w-full h-10 rounded-xl text-sm border-0" style={plan.highlight ? { background: LUMXIA_GRADIENT, color: "#fff", boxShadow: "0 4px 16px rgba(124,140,255,0.3)" } : { background: "rgba(255,255,255,0.06)", color: "#F9FAFB" }}>
+                    {plan.cta} <ArrowRight className="ml-1.5 w-3.5 h-3.5" />
+                  </Button>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── FINAL CTA ───────────────────────────────────────────── */}
       <section className="relative z-10 px-6 md:px-16 py-24 border-t border-white/5">
         <div className="max-w-2xl mx-auto text-center">
           <div
             className="relative p-12 rounded-3xl overflow-hidden"
             style={{ border: "1px solid rgba(124,140,255,0.15)", background: "rgba(124,140,255,0.05)" }}
           >
-            <div className="relative">
-              <div className="flex justify-center mb-6">
-                <LumxiaLogo size={56} />
-              </div>
-              <h2 className="text-3xl md:text-4xl font-bold mb-4 tracking-tight text-[#F9FAFB]">
-                Ready to orchestrate
-                <br />
-                your knowledge?
-              </h2>
-              <p className="text-[#9CA3AF] mb-8 text-sm leading-relaxed">
-                Get started for free. No credit card required.
-              </p>
+            <div className="flex justify-center mb-6">
+              <LumxiaLogo size={56} />
+            </div>
+            <h2 className="text-3xl md:text-4xl font-bold mb-4 tracking-tight text-[#F9FAFB]">
+              Stop searching.{" "}
+              <span style={{ background: LUMXIA_GRADIENT, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+                Start knowing.
+              </span>
+            </h2>
+            <p className="text-[#9CA3AF] mb-2 text-sm leading-relaxed">
+              Join teams already using Lumxia to unlock their company knowledge.
+            </p>
+            <p className="text-[#6B7280] text-xs mb-8">No credit card required. Up and running in minutes.</p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <Link href="/login">
-                <Button
-                  size="lg"
-                  className="text-white text-base px-10 h-12 border-0 rounded-xl"
-                  style={{ background: LUMXIA_GRADIENT, boxShadow: "0 8px 28px rgba(124,140,255,0.35)" }}
-                >
-                  Get started free <ArrowRight className="ml-2 w-4 h-4" />
+                <Button size="lg" className="text-white text-base px-10 h-12 border-0 rounded-xl" style={{ background: LUMXIA_GRADIENT, boxShadow: "0 8px 28px rgba(124,140,255,0.4)" }}>
+                  Start Using Lumxia Free <ArrowRight className="ml-2 w-4 h-4" />
+                </Button>
+              </Link>
+              <Link href="/demo">
+                <Button size="lg" variant="ghost" className="text-white/50 hover:text-white hover:bg-white/5 text-base px-8 h-12 rounded-xl gap-2">
+                  <Play className="w-4 h-4" /> Try Demo
                 </Button>
               </Link>
             </div>
@@ -329,7 +423,7 @@ export default function Home() {
             <LumxiaLogo size={24} />
             <span className="font-semibold text-white/40">Lumxia</span>
           </div>
-          <p>© 2026 Lumxia. All rights reserved.</p>
+          <p>© 2026 Lumxia · intellaqc.com</p>
           <div className="flex gap-6">
             <Link href="/support" className="hover:text-white/50 transition-colors">Support</Link>
             <Link href="/privacy" className="hover:text-white/50 transition-colors">Privacy</Link>
@@ -340,4 +434,3 @@ export default function Home() {
     </div>
   );
 }
-

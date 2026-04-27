@@ -102,6 +102,17 @@ export async function POST(req: NextRequest) {
       topK: resolvedTopK,
       rehydrateChunks,
     });
+
+    // ── Fire query.answered webhook (fire-and-forget) ─────────────────────
+    import("@/lib/webhook-actions").then(({ dispatchWebhook }) => {
+      dispatchWebhook(auth.tenantId, "query.answered", {
+        query: query.trim(),
+        answer: result.answer,
+        citations: result.citations,
+        hasContext: result.hasContext,
+      }).catch(() => {});
+    }).catch(() => {});
+
     return NextResponse.json(result, { status: 200 });
   } catch (err: unknown) {
     console.error("[API /query] Error:", (err as Error).message);

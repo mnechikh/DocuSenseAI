@@ -387,15 +387,38 @@ const uploadAndProcessDocumentFlow = ai.defineFlow(
 export async function uploadAndProcessDocumentForAIAnalysis(
   input: UploadAndProcessDocumentInput
 ): Promise<UploadAndProcessDocumentOutput> {
+  let result: UploadAndProcessDocumentOutput;
   try {
-    return await uploadAndProcessDocumentFlow(input);
+    result = await uploadAndProcessDocumentFlow(input);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[Ingestion] Unhandled flow error:', msg);
-    return {
+    result = {
       documentId: input.documentId,
       status: 'failed' as const,
       message: `Processing error: ${msg}`,
     };
   }
+
+  // ── Outbound webhook dispatch (fire-and-forget) ────────────────────────────
+  try {
+    const { dispatchWebhook } = await import('@/lib/webhook-actions');
+    if (result.status === 'processed') {
+      dispatchWebhook(input.tenantId, 'document.indexed', {
+        documentId: input.documentId,
+        filename: input.filename,
+        chunkCount: result.chunkCount ?? 0,
+      }).catch(() => {});
+    } else {
+      dispatchWebhook(input.tenantId, 'document.failed', {
+        documentId: input.documentId,
+        filename: input.filename,
+        failureReason: result.message,
+      }).catch(() => {});
+    }
+  } catch {
+    // Non-fatal — never block ingestion for a webhook error
+  }
+
+  return result;
 }

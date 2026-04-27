@@ -18,6 +18,7 @@ import {
   KeyRound,
   BookOpen,
   Plug2,
+  Webhook,
   CreditCard,
   LifeBuoy,
 } from "lucide-react";
@@ -67,6 +68,7 @@ export function DashboardSidebar({ claimsReady }: { claimsReady: boolean }) {
     { label: "User Management", href: "/users", icon: Users, hidden: !isAdmin },
     { label: "API Keys", href: "/dashboard/api-keys", icon: KeyRound, hidden: !isAdmin },
     { label: "Integrations", href: "/dashboard/integrations", icon: Plug2, hidden: !isAdmin },
+    { label: "Webhooks", href: "/dashboard/webhooks", icon: Webhook, hidden: !isAdmin },
     { label: "API Docs", href: "/dashboard/api-docs", icon: BookOpen },
     { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
     { label: "Support", href: "/support", icon: LifeBuoy },

@@ -20,6 +20,8 @@ import {
   Clock,
   Gauge,
   Zap,
+  Sparkles,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -34,16 +36,85 @@ type QuotaInfo = {
 
 export default function DashboardPage() {
   const { currentUser } = useStore();
-  const { documents: tenantDocuments } = useDocuments(currentUser?.tenantId);
+  const { documents: tenantDocuments, loading: docsLoading } = useDocuments(currentUser?.tenantId);
   const { chats: tenantChats } = useChats(currentUser?.tenantId, currentUser?.userId);
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOnboardingDismissed(localStorage.getItem("lumxia-onboarding-dismissed") === "1");
+    }
+  }, []);
 
   useEffect(() => {
     if (!currentUser?.tenantId) return;
     getMyTenantQuota().then(setQuota).catch(() => {});
   }, [currentUser?.tenantId]);
 
+  const showOnboarding = !docsLoading && tenantDocuments.length === 0 && !onboardingDismissed;
+
   const docCount = tenantDocuments.filter(d => d.status !== "failed").length;
+
+  if (showOnboarding) {
+    return (
+      <div className="max-w-3xl mx-auto py-16 px-4 flex flex-col items-center text-center gap-6">
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: "rgba(124,140,255,0.12)", border: "1px solid rgba(124,140,255,0.2)" }}>
+          <Sparkles className="w-7 h-7 text-[#9B8CFF]" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-primary mb-2">
+            Welcome to Lumxia, {currentUser?.name}
+          </h2>
+          <p className="text-muted-foreground text-sm max-w-lg mx-auto leading-relaxed">
+            Your workspace is ready. Upload your first document and start asking questions in natural language — no setup required.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full text-left">
+          {[
+            { step: "1", title: "Upload documents", desc: "PDF, DOCX, XLSX, images, or a ZIP archive of files." },
+            { step: "2", title: "Lumxia indexes them", desc: "Content is extracted and ready to query in seconds." },
+            { step: "3", title: "Ask in plain English", desc: "Get precise answers with source citations from your docs." },
+          ].map((s) => (
+            <div key={s.step} className="p-5 rounded-2xl border border-border/40 bg-card/50">
+              <div className="text-4xl font-black text-muted-foreground/10 leading-none mb-3 select-none">{s.step}</div>
+              <p className="text-sm font-semibold text-foreground mb-1">{s.title}</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">{s.desc}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center gap-3 mt-2">
+          {currentUser?.role === "Admin" && (
+            <Button asChild className="bg-primary hover:bg-primary/90 shadow-md gap-2">
+              <Link href="/documents">
+                <Upload className="w-4 h-4" />
+                Upload Your First Document
+              </Link>
+            </Button>
+          )}
+          <Button asChild variant="outline" className="gap-2">
+            <Link href="/support">
+              <ArrowRight className="w-4 h-4" />
+              Learn how it works
+            </Link>
+          </Button>
+          <Button
+            variant="ghost"
+            className="text-muted-foreground text-sm"
+            onClick={() => {
+              localStorage.setItem("lumxia-onboarding-dismissed", "1");
+              setOnboardingDismissed(true);
+            }}
+          >
+            Skip for now
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
 
   const stats = [
     { 

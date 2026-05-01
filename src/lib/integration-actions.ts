@@ -49,6 +49,11 @@ function validateEndpoint(endpoint: string) {
   }
 }
 
+// Valid HTTP header name: token chars only (no @, spaces, etc.)
+function isValidHeaderName(name: string): boolean {
+  return /^[a-zA-Z0-9!#$%&'*+\-.^_`|~]+$/.test(name);
+}
+
 function substituteParams(
   template: string,
   params: Record<string, unknown>
@@ -86,7 +91,7 @@ export async function createIntegration(data: {
     enabled: true,
     endpoint: data.endpoint.trim(),
     method: data.method,
-    headers: data.headers.filter((h) => h.key.trim()),
+    headers: data.headers.filter((h) => h.key.trim() && isValidHeaderName(h.key.trim())),
     bodyTemplate: data.bodyTemplate,
     parameters: data.parameters,
     createdAt: now,
@@ -213,7 +218,8 @@ export async function executeIntegration(
     'User-Agent': 'Lumxia-Integration/1.0',
   };
   for (const { key, value } of integration.headers) {
-    if (key.trim()) reqHeaders[key.trim()] = value;
+    const k = key.trim();
+    if (k && isValidHeaderName(k)) reqHeaders[k] = value;
   }
 
   // Build body

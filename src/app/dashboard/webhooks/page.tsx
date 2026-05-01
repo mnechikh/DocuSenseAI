@@ -71,8 +71,9 @@ export default function WebhooksPage() {
 
   const loadHooks = useCallback(async () => {
     try {
-      const data = await listWebhooks();
-      setHooks(data);
+      const { hooks: data, error } = await listWebhooks();
+      if (error) toast({ title: "Failed to load webhooks", description: error, variant: "destructive" });
+      else setHooks(data);
     } catch (e: unknown) {
       toast({ title: "Failed to load webhooks", description: (e as Error).message, variant: "destructive" });
     } finally {
@@ -120,14 +121,22 @@ export default function WebhooksPage() {
 
   const handleCreate = async () => {
     if (!url.trim() || !selectedEvents.length) return;
+    if (!url.trim().startsWith("https://")) {
+      toast({ title: "Invalid URL", description: "Webhook URL must use HTTPS.", variant: "destructive" });
+      return;
+    }
     setCreating(true);
     try {
-      const { secret } = await createWebhook(url.trim(), selectedEvents);
-      setSecretDialog({ secret });
-      setUrl("");
-      setSelectedEvents(["document.indexed"]);
-      await loadHooks();
-      toast({ title: "Webhook created" });
+      const result = await createWebhook(url.trim(), selectedEvents);
+      if (result.error) {
+        toast({ title: "Failed to create webhook", description: result.error, variant: "destructive" });
+      } else {
+        setSecretDialog({ secret: result.secret! });
+        setUrl("");
+        setSelectedEvents(["document.indexed"]);
+        await loadHooks();
+        toast({ title: "Webhook created" });
+      }
     } catch (e: unknown) {
       toast({ title: "Failed to create webhook", description: (e as Error).message, variant: "destructive" });
     } finally {
@@ -139,9 +148,13 @@ export default function WebhooksPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await deleteWebhook(deleteTarget.webhookId);
-      setHooks((prev) => prev.filter((h) => h.webhookId !== deleteTarget.webhookId));
-      toast({ title: "Webhook removed" });
+      const result = await deleteWebhook(deleteTarget.webhookId);
+      if (result.error) {
+        toast({ title: "Failed to remove webhook", description: result.error, variant: "destructive" });
+      } else {
+        setHooks((prev) => prev.filter((h) => h.webhookId !== deleteTarget.webhookId));
+        toast({ title: "Webhook removed" });
+      }
     } catch (e: unknown) {
       toast({ title: "Failed to remove webhook", description: (e as Error).message, variant: "destructive" });
     } finally {
@@ -154,11 +167,13 @@ export default function WebhooksPage() {
     setPingingId(webhookId);
     try {
       const res = await sendTestPing(webhookId);
-      if (res.success) {
+      if (res.error) {
+        toast({ title: "Ping error", description: res.error, variant: "destructive" });
+      } else if (res.success) {
         toast({ title: "Ping sent", description: `Endpoint responded with ${res.statusCode}.` });
         await loadHooks();
       } else {
-        toast({ title: "Ping failed", description: `Endpoint returned ${res.statusCode || "no response"}.`, variant: "destructive" });
+        toast({ title: "Ping failed", description: `Endpoint returned ${res.statusCode ?? "no response"}.`, variant: "destructive" });
       }
     } catch (e: unknown) {
       toast({ title: "Ping error", description: (e as Error).message, variant: "destructive" });

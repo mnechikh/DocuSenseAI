@@ -17,35 +17,8 @@
 import { createHmac, randomBytes } from 'crypto';
 import { adminDb } from '@/lib/firebase-admin';
 import { getSessionUser } from '@/lib/auth-actions';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type WebhookEvent = 'document.indexed' | 'document.failed' | 'query.answered';
-
-export const WEBHOOK_EVENTS: WebhookEvent[] = [
-  'document.indexed',
-  'document.failed',
-  'query.answered',
-];
-
-export interface WebhookRecord {
-  webhookId: string;
-  tenantId: string;
-  url: string;
-  events: WebhookEvent[];
-  secret: string;       // HMAC signing secret — never exposed after creation
-  active: boolean;
-  createdAt: number;
-  lastFiredAt: number | null;
-}
-
-export interface WebhookSummary {
-  webhookId: string;
-  url: string;
-  events: WebhookEvent[];
-  createdAt: number;
-  lastFiredAt: number | null;
-}
+import type { WebhookEvent, WebhookRecord, WebhookSummary } from '@/lib/webhook-types';
+import { WEBHOOK_EVENTS } from '@/lib/webhook-types';
 
 const MAX_WEBHOOKS_PER_TENANT = 5;
 

@@ -11,10 +11,12 @@ import {
   listWebhooks,
   deleteWebhook,
   sendTestPing,
+} from "@/lib/webhook-actions";
+import {
   WEBHOOK_EVENTS,
   type WebhookEvent,
   type WebhookSummary,
-} from "@/lib/webhook-actions";
+} from "@/lib/webhook-types";
 import { type TenantPlan } from "@/lib/quota-constants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

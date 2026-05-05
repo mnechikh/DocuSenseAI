@@ -415,6 +415,18 @@ export async function uploadAndProcessDocumentForAIAnalysis(
         filename: input.filename,
         failureReason: result.message,
       }).catch(() => {});
+      // Log processing failure to activity logs
+      const { logActivity } = await import('@/lib/activity-log');
+      logActivity({
+        tenantId: input.tenantId,
+        level: 'error',
+        category: 'document',
+        action: 'document.processing_failed',
+        targetId: input.documentId,
+        targetName: input.filename,
+        message: `Document processing failed: ${input.filename}`,
+        metadata: { failureReason: result.message },
+      });
     }
   } catch {
     // Non-fatal — never block ingestion for a webhook error

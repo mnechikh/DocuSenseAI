@@ -21,6 +21,7 @@ import {
   Webhook,
   CreditCard,
   LifeBuoy,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -69,6 +70,7 @@ export function DashboardSidebar({ claimsReady }: { claimsReady: boolean }) {
     { label: "API Keys", href: "/dashboard/api-keys", icon: KeyRound, hidden: !isAdmin },
     { label: "Integrations", href: "/dashboard/integrations", icon: Plug2, hidden: !isAdmin },
     { label: "Webhooks", href: "/dashboard/webhooks", icon: Webhook, hidden: !isAdmin },
+    { label: "Activity Logs", href: "/dashboard/logs", icon: ShieldCheck, hidden: !isAdmin },
     { label: "API Docs", href: "/dashboard/api-docs", icon: BookOpen },
     { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
     { label: "Support", href: "/support", icon: LifeBuoy },

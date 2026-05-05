@@ -3,6 +3,7 @@
 import { adminAuth, adminDb, isSuperAdmin } from "@/lib/firebase-admin";
 import { cookies } from "next/headers";
 import { PLAN_DEFAULTS, nextResetTs, type TenantPlan } from "@/lib/quota-constants";
+import { logActivity } from "@/lib/activity-log";
 
 const SESSION_COOKIE_NAME = "docusense_session";
 const SESSION_DURATION_MS = 60 * 60 * 24 * 14 * 1000; // 14 days
@@ -16,8 +17,10 @@ export async function createSessionCookie(idToken: string) {
   try {
     const decoded = await adminAuth.verifyIdToken(idToken);
     const userSnap = await adminDb.doc(`users/${decoded.uid}`).get();
+    let tenantIdForLog: string | undefined;
     if (userSnap.exists) {
-      const { tenantId, role } = userSnap.data() as { tenantId: string; role: string };
+      const { tenantId, role } = userSnap.data() as { tenantId: string; role: string; email?: string };
+      tenantIdForLog = tenantId;
       await adminAuth.setCustomUserClaims(decoded.uid, { tenantId, role });
     }
 
@@ -32,6 +35,18 @@ export async function createSessionCookie(idToken: string) {
       maxAge: SESSION_DURATION_MS / 1000,
       path: "/",
     });
+
+    if (tenantIdForLog) {
+      logActivity({
+        tenantId: tenantIdForLog,
+        level: 'info',
+        category: 'auth',
+        action: 'auth.login_success',
+        actorId: tenantIdForLog ? undefined : undefined,
+        actorEmail: decoded.email,
+        message: `Successful login for ${decoded.email ?? 'unknown'}`,
+      });
+    }
   } catch (err) {
     // Re-throw as a plain Error so Next.js server actions can serialize it
     // (Firebase Admin SDK errors have non-serializable properties).
@@ -591,7 +606,19 @@ export async function removeUserFromTenant(targetUid: string) {
     throw new Error("Unauthorized.");
   }
   if (targetUid === user.uid) throw new Error("Cannot remove yourself.");
+  const targetData = targetSnap.data() as { tenantId: string; email?: string; name?: string };
   await adminDb.doc(`users/${targetUid}`).update({ status: "suspended" });
+  logActivity({
+    tenantId: targetData.tenantId,
+    level: 'warning',
+    category: 'user',
+    action: 'user.removed',
+    actorId: user.uid,
+    actorEmail: user.email,
+    targetId: targetUid,
+    targetName: targetData.email ?? targetData.name,
+    message: `User ${targetData.email ?? targetUid} removed from tenant`,
+  });
 }
 
 // ─── Stripe stub ───────────────────────────────────────────────────────────────

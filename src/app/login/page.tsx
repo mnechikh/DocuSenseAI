@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { createSessionCookie } from "@/lib/auth-actions";
+import { logAuthEvent } from "@/lib/activity-log-actions";
 import { useStore } from "@/lib/store";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,7 @@ export default function LoginPage() {
         setError("An account with this email already exists. Please sign in with email and password.");
         return;
       }
+      logAuthEvent(email, code || 'google-signin-failed').catch(() => {});
       setError("Google sign-in failed. Please try again.");
     } finally {
       setIsGoogleLoading(false);
@@ -100,8 +102,10 @@ export default function LoginPage() {
       const code = (err as { code?: string }).code ?? "";
       const message = (err as Error).message ?? "";
       if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") {
+        logAuthEvent(email, code).catch(() => {});
         setError("Invalid email or password.");
       } else if (code === "auth/too-many-requests") {
+        logAuthEvent(email, code).catch(() => {});
         setError("Too many attempts. Please try again later.");
       } else if (message.includes("unexpected response")) {
         // Server action failed to serialize — usually a transient server error.

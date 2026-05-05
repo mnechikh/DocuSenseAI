@@ -212,6 +212,18 @@ async function fireWebhook(webhook: WebhookRecord, payload: string): Promise<voi
       success = await attempt();
     } catch (retryErr) {
       console.warn('[Webhook] Delivery failed after retry:', webhook.webhookId, (retryErr as Error).message);
+      const { logActivity } = await import('@/lib/activity-log');
+      const eventName = (JSON.parse(payload) as { event: string }).event;
+      logActivity({
+        tenantId: webhook.tenantId,
+        level: 'error',
+        category: 'webhook',
+        action: 'webhook.delivery_failed',
+        targetId: webhook.webhookId,
+        targetName: webhook.url,
+        message: `Webhook delivery failed for event "${eventName}" to ${webhook.url}`,
+        metadata: { error: (retryErr as Error).message, event: eventName },
+      });
     }
   }
 

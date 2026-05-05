@@ -1,13 +1,13 @@
 'use server';
 
-import { adminDb } from '@/lib/firebase-admin';
+import { adminDb, isSuperAdmin } from '@/lib/firebase-admin';
 import { getSessionUser } from '@/lib/auth-actions';
 import { logActivity } from '@/lib/activity-log';
 import type { ActivityLog, ActivityLevel, ActivityCategory } from '@/lib/activity-log';
 
 export type { ActivityLog, ActivityLevel, ActivityCategory };
 
-// ─── Read ─────────────────────────────────────────────────────────────────────
+// ─── Read (per-tenant, Admin only) ───────────────────────────────────────────
 
 export interface ActivityLogFilters {
   level?: ActivityLevel;
@@ -40,6 +40,48 @@ export async function listActivityLogs(
   }
 
   query = query.limit(PAGE_SIZE + 1) as typeof query;
+
+  try {
+    const snap = await query.get();
+    const docs = snap.docs.slice(0, PAGE_SIZE);
+    const hasMore = snap.docs.length > PAGE_SIZE;
+
+    const logs: ActivityLog[] = docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as Omit<ActivityLog, 'id'>),
+    }));
+
+    return { logs, hasMore };
+  } catch {
+    return { logs: [], hasMore: false };
+  }
+}
+
+// ─── Read (all tenants, super-admin only) ────────────────────────────────────
+
+export async function listAllActivityLogs(
+  filters: ActivityLogFilters = {}
+): Promise<{ logs: ActivityLog[]; hasMore: boolean }> {
+  const user = await getSessionUser();
+  if (!user || !isSuperAdmin(user.uid)) return { logs: [], hasMore: false };
+
+  const PAGE_SIZE = 100;
+
+  let query = adminDb
+    .collection('activityLogs')
+    .orderBy('timestamp', 'desc') as FirebaseFirestore.Query;
+
+  if (filters.level) {
+    query = query.where('level', '==', filters.level);
+  }
+  if (filters.category) {
+    query = query.where('category', '==', filters.category);
+  }
+  if (filters.cursor) {
+    query = query.startAfter(filters.cursor);
+  }
+
+  query = query.limit(PAGE_SIZE + 1);
 
   try {
     const snap = await query.get();
@@ -95,3 +137,4 @@ export async function logAuthEvent(
     metadata: { errorCode },
   });
 }
+

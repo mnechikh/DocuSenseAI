@@ -20,10 +20,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Shield, CheckCircle2, XCircle, Users, Building2, Clock, Loader2, RefreshCw, LogOut, Settings2, RotateCcw, Plus, Pencil, Trash2, KeyRound, Copy, Check } from "lucide-react";
+import { Shield, CheckCircle2, XCircle, Users, Building2, Clock, Loader2, RefreshCw, LogOut, Settings2, RotateCcw, Plus, Pencil, Trash2, KeyRound, Copy, Check, ShieldCheck, ChevronDown } from "lucide-react";
 import { revokeSessionCookie } from "@/lib/auth-actions";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { listAllActivityLogs } from "@/lib/activity-log-actions";
+import type { ActivityLog, ActivityLevel, ActivityCategory } from "@/lib/activity-log-actions";
+import { format } from "date-fns";
 
 type Tenant = {
   id: string;
@@ -42,13 +45,58 @@ type Tenant = {
   quotaResetAt: number;
 };
 
+// ─── Helpers shared between tabs ─────────────────────────────────────────────
+
+const LEVEL_STYLES: Record<ActivityLevel, string> = {
+  info:    "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  warning: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+  error:   "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+};
+
+const CATEGORY_LABELS: Record<ActivityCategory, string> = {
+  auth: "Auth", document: "Document", user: "User",
+  webhook: "Webhook", api: "API", integration: "Integration", system: "System",
+};
+
+function fmtTs(ts: number) {
+  try { return format(new Date(ts), "MMM d HH:mm:ss"); } catch { return String(ts); }
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const { currentUser, logout } = useStore();
+  const [activeTab, setActiveTab] = useState<"workspaces" | "logs">("workspaces");
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState("");
+
+  // ── Activity logs state ──────────────────────────────────────────────────
+  const [logs, setLogs] = useState<ActivityLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsHasMore, setLogsHasMore] = useState(false);
+  const [logsLevelFilter, setLogsLevelFilter] = useState<ActivityLevel | "all">("all");
+  const [logsCategoryFilter, setLogsCategoryFilter] = useState<ActivityCategory | "all">("all");
+
+  const fetchLogs = useCallback(async (cursor?: number, append = false) => {
+    setLogsLoading(true);
+    try {
+      const { logs: newLogs, hasMore } = await listAllActivityLogs({
+        level: logsLevelFilter !== "all" ? logsLevelFilter : undefined,
+        category: logsCategoryFilter !== "all" ? logsCategoryFilter : undefined,
+        cursor,
+      });
+      setLogs((prev) => append ? [...prev, ...newLogs] : newLogs);
+      setLogsHasMore(hasMore);
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [logsLevelFilter, logsCategoryFilter]);
+
+  useEffect(() => {
+    if (activeTab === "logs") fetchLogs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, logsLevelFilter, logsCategoryFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -284,8 +332,10 @@ export default function AdminPage() {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={load} disabled={loading}>
-                  <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                <Button variant="outline" size="icon"
+                  onClick={() => activeTab === "logs" ? fetchLogs() : load()}
+                  disabled={loading || logsLoading}>
+                  <RefreshCw className={`w-4 h-4 ${(loading || logsLoading) ? "animate-spin" : ""}`} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Refresh</TooltipContent>
@@ -302,6 +352,23 @@ export default function AdminPage() {
       )}
 
       {/* Stats */}
+      {/* Tab nav */}
+      <div className="flex gap-1 border-b">
+        <button
+          onClick={() => setActiveTab("workspaces")}
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "workspaces" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          <span className="flex items-center gap-2"><Building2 className="w-4 h-4" />Workspaces</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("logs")}
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "logs" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          <span className="flex items-center gap-2"><ShieldCheck className="w-4 h-4" />Activity Logs</span>
+        </button>
+      </div>
+
+      {activeTab === "workspaces" && <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: "Total Workspaces", value: counts.total, icon: Building2, color: "text-primary" },
@@ -501,6 +568,107 @@ export default function AdminPage() {
         Stripe integration: when payment is enabled, workspaces will be approved automatically on successful payment.
         The approve/suspend controls above will remain for manual overrides.
       </p>
+      </>}
+
+      {activeTab === "logs" && (
+        <div className="space-y-4">
+          {/* Filters */}
+          <div className="flex flex-wrap gap-3">
+            <Select value={logsLevelFilter} onValueChange={(v) => setLogsLevelFilter(v as ActivityLevel | "all")}>
+              <SelectTrigger className="w-36"><SelectValue placeholder="Level" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Levels</SelectItem>
+                <SelectItem value="info">Info</SelectItem>
+                <SelectItem value="warning">Warning</SelectItem>
+                <SelectItem value="error">Error</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={logsCategoryFilter} onValueChange={(v) => setLogsCategoryFilter(v as ActivityCategory | "all")}>
+              <SelectTrigger className="w-40"><SelectValue placeholder="Category" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {(Object.keys(CATEGORY_LABELS) as ActivityCategory[]).map((c) => (
+                  <SelectItem key={c} value={c}>{CATEGORY_LABELS[c]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4" />
+                {logs.length} event{logs.length !== 1 ? "s" : ""}
+                {logsLevelFilter !== "all" || logsCategoryFilter !== "all" ? " (filtered)" : " — all tenants"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {logsLoading && logs.length === 0 ? (
+                <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin" />Loading…
+                </div>
+              ) : logs.length === 0 ? (
+                <div className="p-12 text-center text-muted-foreground text-sm">
+                  No activity logs yet. Events appear here as users interact with the platform.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50 text-muted-foreground text-xs">
+                        <th className="px-4 py-3 text-left font-medium">Time</th>
+                        <th className="px-4 py-3 text-left font-medium">Level</th>
+                        <th className="px-4 py-3 text-left font-medium">Category</th>
+                        <th className="px-4 py-3 text-left font-medium">Action</th>
+                        <th className="px-4 py-3 text-left font-medium">Tenant</th>
+                        <th className="px-4 py-3 text-left font-medium">Actor</th>
+                        <th className="px-4 py-3 text-left font-medium">Message</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {logs.map((log) => (
+                        <tr key={log.id} className="hover:bg-muted/30 transition-colors">
+                          <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground font-mono">
+                            {fmtTs(log.timestamp)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${LEVEL_STYLES[log.level]}`}>
+                              {log.level.charAt(0).toUpperCase() + log.level.slice(1)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant="outline" className="text-xs">{CATEGORY_LABELS[log.category] ?? log.category}</Badge>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{log.action}</td>
+                          <td className="px-4 py-3 font-mono text-xs text-muted-foreground truncate max-w-[120px]" title={log.tenantId}>
+                            {log.tenantId}
+                          </td>
+                          <td className="px-4 py-3 text-xs truncate max-w-[140px]" title={log.actorEmail}>
+                            {log.actorEmail ?? log.actorId ?? <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-xs">
+                            <span title={log.metadata ? JSON.stringify(log.metadata, null, 2) : undefined}>
+                              {log.message}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {logsHasMore && (
+                <div className="flex justify-center py-4 border-t">
+                  <Button variant="ghost" size="sm" onClick={() => { const last = logs[logs.length - 1]; if (last) fetchLogs(last.timestamp, true); }} disabled={logsLoading}>
+                    <ChevronDown className="h-4 w-4 mr-2" />Load more
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* ── Create Workspace Modal ── */}
       <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) { setCreateName(""); setCreateEmail(""); setCreateError(""); } }}>

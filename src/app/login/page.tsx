@@ -31,7 +31,14 @@ export default function LoginPage() {
       const provider = new GoogleAuthProvider();
       const cred = await signInWithPopup(auth, provider);
       const idToken = await cred.user.getIdToken();
-      await createSessionCookie(idToken);
+      const { error: sessionError } = await createSessionCookie(idToken);
+      if (sessionError) {
+        await firebaseSignOut(auth);
+        // Log the failure so we can diagnose in production
+        logAuthEvent(cred.user.email ?? '', 'session-create-failed').catch(() => {});
+        setError(`Sign-in failed: ${sessionError}`);
+        return;
+      }
       await cred.user.getIdToken(true);
       const { getSessionUser } = await import("@/lib/auth-actions");
       const profile = await getSessionUser();
@@ -60,8 +67,12 @@ export default function LoginPage() {
         setError("An account with this email already exists. Please sign in with email and password.");
         return;
       }
+      if (code === "auth/unauthorized-domain") {
+        setError("This domain is not authorized for Google sign-in. Contact support.");
+        return;
+      }
       logAuthEvent(email, code || 'google-signin-failed').catch(() => {});
-      setError("Google sign-in failed. Please try again.");
+      setError((err as Error).message || "Google sign-in failed. Please try again.");
     } finally {
       setIsGoogleLoading(false);
     }
@@ -75,7 +86,11 @@ export default function LoginPage() {
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       const idToken = await cred.user.getIdToken();
-      await createSessionCookie(idToken);
+      const { error: sessionError } = await createSessionCookie(idToken);
+      if (sessionError) {
+        setError(`Sign-in failed: ${sessionError}`);
+        return;
+      }
       // Force token refresh so Firestore picks up the new custom claims (tenantId/role)
       await cred.user.getIdToken(true);
 

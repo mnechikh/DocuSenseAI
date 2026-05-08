@@ -11,9 +11,11 @@ const INVITE_EXPIRY_MS = 60 * 60 * 24 * 7 * 1000; // 7 days
 
 // ─── Session ──────────────────────────────────────────────────────────────────
 
-export async function createSessionCookie(idToken: string) {
+export async function createSessionCookie(idToken: string): Promise<{ error?: string }> {
   // Verify the token to get the uid, then stamp tenantId + role as custom claims
   // so Firestore security rules can use request.auth.token.tenantId directly.
+  // Returns { error } instead of throwing so Next.js production masking doesn't
+  // swallow the real error message on the client.
   try {
     const decoded = await adminAuth.verifyIdToken(idToken);
     const userSnap = await adminDb.doc(`users/${decoded.uid}`).get();
@@ -42,18 +44,17 @@ export async function createSessionCookie(idToken: string) {
         level: 'info',
         category: 'auth',
         action: 'auth.login_success',
-        actorId: tenantIdForLog ? undefined : undefined,
+        actorId: undefined,
         actorEmail: decoded.email,
         message: `Successful login for ${decoded.email ?? 'unknown'}`,
       });
     }
+    return {};
   } catch (err) {
-    // Re-throw as a plain Error so Next.js server actions can serialize it
-    // (Firebase Admin SDK errors have non-serializable properties).
     const message = (err as { message?: string; errorInfo?: { message?: string } })?.errorInfo?.message
       ?? (err as Error)?.message
       ?? 'Failed to create session.';
-    throw new Error(message);
+    return { error: message };
   }
 }
 

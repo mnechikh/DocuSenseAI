@@ -62,7 +62,8 @@ function SignupForm() {
     await createUserProfile(uid, userEmail, displayName || userEmail.split("@")[0], invite.tenantId, invite.role, "active");
     await consumeInviteToken(inviteToken, uid);
     const idToken = await firebaseUser.getIdToken();
-    await createSessionCookie(idToken);
+    const { error: sessionError } = await createSessionCookie(idToken);
+    if (sessionError) throw new Error(sessionError);
     setCurrentUser({ userId: uid, tenantId: invite.tenantId, email: userEmail, role: invite.role, name: displayName || userEmail.split("@")[0], status: "active" });
     router.push("/dashboard");
   }, [inviteToken, router, setCurrentUser]);
@@ -119,7 +120,8 @@ function SignupForm() {
         await createTenant(resolvedTenantId, tenantName || resolvedTenantId, uid);
         await createUserProfile(uid, email, name, resolvedTenantId, "Admin", "active");
         const idToken = await firebaseUser.getIdToken();
-        await createSessionCookie(idToken);
+        const { error: sessionError } = await createSessionCookie(idToken);
+        if (sessionError) throw new Error(sessionError);
         setCurrentUser({ userId: uid, tenantId: resolvedTenantId, email, role: "Admin", name, status: "active" });
         router.push("/dashboard");
       } else {

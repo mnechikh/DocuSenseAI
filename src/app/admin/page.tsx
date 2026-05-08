@@ -25,7 +25,7 @@ import { revokeSessionCookie } from "@/lib/auth-actions";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { listAllActivityLogs } from "@/lib/activity-log-actions";
-import type { ActivityLog, ActivityLevel, ActivityCategory } from "@/lib/activity-log-actions";
+import type { ActivityLog, ActivityLevel, ActivityCategory } from "@/lib/activity-log";
 import { format } from "date-fns";
 
 type Tenant = {

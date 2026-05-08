@@ -5,8 +5,6 @@ import { getSessionUser } from '@/lib/auth-actions';
 import { logActivity } from '@/lib/activity-log';
 import type { ActivityLog, ActivityLevel, ActivityCategory } from '@/lib/activity-log';
 
-export type { ActivityLog, ActivityLevel, ActivityCategory };
-
 // ─── Read (per-tenant, Admin only) ───────────────────────────────────────────
 
 export interface ActivityLogFilters {

@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import { useStore } from "@/lib/store";
+import { getSessionUser } from "@/lib/auth-actions";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
@@ -33,7 +34,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         // Page-reload case: Firebase has a user but Zustand lost its state.
         // Restore the profile from the session cookie via server action.
         if (!currentUserRef.current) {
-          const { getSessionUser } = await import("@/lib/auth-actions");
           const profile = await getSessionUser();
           if (profile) {
             setCurrentUser({

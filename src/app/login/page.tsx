@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { createSessionCookie } from "@/lib/auth-actions";
+import { createSessionCookie, getSessionUser } from "@/lib/auth-actions";
 import { logAuthEvent } from "@/lib/activity-log-actions";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,6 @@ export default function LoginPage() {
         return;
       }
       await cred.user.getIdToken(true);
-      const { getSessionUser } = await import("@/lib/auth-actions");
       const profile = await getSessionUser();
       if (!profile) {
         await firebaseSignOut(auth);
@@ -95,7 +94,6 @@ export default function LoginPage() {
       await cred.user.getIdToken(true);
 
       // Fetch user profile from Firestore via server action
-      const { getSessionUser } = await import("@/lib/auth-actions");
       const profile = await getSessionUser();
       if (profile) {
         setCurrentUser({

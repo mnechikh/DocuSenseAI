@@ -46,10 +46,11 @@ export type ActivityLogInput = Omit<ActivityLog, 'id' | 'timestamp'>;
  * Write an activity log entry. Fire-and-forget — never throws.
  */
 export function logActivity(input: ActivityLogInput): void {
-  const entry = {
-    ...input,
-    timestamp: Date.now(),
-  };
+  const raw = { ...input, timestamp: Date.now() };
+  // Firestore rejects undefined values — strip optional fields that weren't set
+  const entry = Object.fromEntries(
+    Object.entries(raw).filter(([, v]) => v !== undefined)
+  );
 
   adminDb
     .collection('activityLogs')

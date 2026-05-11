@@ -107,7 +107,7 @@ function BillingContent() {
       features: [
         "500 AI queries / month",
         "25 documents",
-        "Integrations (Make, Zapier, etc.)",
+        "5 integrations",
         "3 team members",
         "Email support",
       ],
@@ -123,7 +123,8 @@ function BillingContent() {
       features: [
         "2,000 AI queries / month",
         "Unlimited documents",
-        "Integrations (Make, Zapier, etc.)",
+        "Unlimited integrations · bulk import/export",
+        "Template gallery · test mode",
         "REST API access",
         "10 team members",
         "Priority support",

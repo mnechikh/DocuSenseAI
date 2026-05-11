@@ -151,6 +151,7 @@ export async function createTenant(
     docQuota: defaults.docQuota,
     queryQuota: defaults.queryQuota,
     storageMB: defaults.storageMB,
+    integrationQuota: defaults.integrationQuota,
     queriesThisMonth: 0,
     quotaResetAt: nextResetTs(),
   });
@@ -414,9 +415,10 @@ export async function setTenantQuota(
   const defaults = PLAN_DEFAULTS[plan];
   await adminDb.doc(`tenants/${tenantId}`).update({
     plan,
-    docQuota:   overrides?.docQuota   ?? defaults.docQuota,
-    queryQuota: overrides?.queryQuota ?? defaults.queryQuota,
-    storageMB:  overrides?.storageMB  ?? defaults.storageMB,
+    docQuota:          overrides?.docQuota   ?? defaults.docQuota,
+    queryQuota:        overrides?.queryQuota ?? defaults.queryQuota,
+    storageMB:         overrides?.storageMB  ?? defaults.storageMB,
+    integrationQuota:  defaults.integrationQuota,
   });
 }
 
@@ -501,6 +503,7 @@ export async function getMyTenantQuota(): Promise<{
   storageMB: number;
   queriesThisMonth: number;
   quotaResetAt: number;
+  integrationQuota: number;
 }> {
   const user = await getSessionUser();
   if (!user?.tenantId) throw new Error("Not authenticated.");
@@ -511,11 +514,12 @@ export async function getMyTenantQuota(): Promise<{
   const defaults = PLAN_DEFAULTS[plan] ?? PLAN_DEFAULTS.free;
   return {
     plan,
-    docQuota:         (data.docQuota         as number) ?? defaults.docQuota,
-    queryQuota:       (data.queryQuota       as number) ?? defaults.queryQuota,
-    storageMB:        (data.storageMB        as number) ?? defaults.storageMB,
-    queriesThisMonth: (data.queriesThisMonth as number) ?? 0,
-    quotaResetAt:     (data.quotaResetAt     as number) ?? nextResetTs(),
+    docQuota:          (data.docQuota          as number) ?? defaults.docQuota,
+    queryQuota:        (data.queryQuota        as number) ?? defaults.queryQuota,
+    storageMB:         (data.storageMB         as number) ?? defaults.storageMB,
+    queriesThisMonth:  (data.queriesThisMonth  as number) ?? 0,
+    quotaResetAt:      (data.quotaResetAt      as number) ?? nextResetTs(),
+    integrationQuota:  (data.integrationQuota  as number) ?? defaults.integrationQuota,
   };
 }
 

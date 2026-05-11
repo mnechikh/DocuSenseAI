@@ -2,6 +2,7 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import { getSessionUser } from '@/lib/auth-actions';
+import { PLAN_DEFAULTS, type TenantPlan } from '@/lib/quota-constants';
 import { randomUUID } from 'crypto';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -79,6 +80,18 @@ export async function createIntegration(data: {
   const user = await getSessionUser();
   requireAdmin(user);
   validateEndpoint(data.endpoint);
+
+  // Enforce per-plan integration quota
+  const tenantSnap = await adminDb.doc(`tenants/${user!.tenantId}`).get();
+  const tenantData = tenantSnap.data() as Record<string, unknown>;
+  const tenantPlan = (tenantData.plan as TenantPlan) ?? 'free';
+  const integrationQuota = (tenantData.integrationQuota as number) ?? PLAN_DEFAULTS[tenantPlan].integrationQuota;
+  if (integrationQuota < 999) {
+    const existingCount = (await adminDb.collection('integrations').where('tenantId', '==', user!.tenantId).count().get()).data().count;
+    if (existingCount >= integrationQuota) {
+      throw new Error(`Integration limit reached (${existingCount}/${integrationQuota}). Upgrade to Pro for unlimited integrations.`);
+    }
+  }
 
   const id = randomUUID();
   const now = Date.now();
@@ -295,6 +308,14 @@ export async function importIntegrations(entries: ImportEntry[]): Promise<Import
   const user = await getSessionUser();
   requireAdmin(user);
 
+  // Enforce per-plan integration quota across the batch
+  const tenantSnapImp = await adminDb.doc(`tenants/${user!.tenantId}`).get();
+  const tenantDataImp = tenantSnapImp.data() as Record<string, unknown>;
+  const tenantPlanImp = (tenantDataImp.plan as TenantPlan) ?? 'free';
+  const importQuota = (tenantDataImp.integrationQuota as number) ?? PLAN_DEFAULTS[tenantPlanImp].integrationQuota;
+  const existingCountSnap = await adminDb.collection('integrations').where('tenantId', '==', user!.tenantId).count().get();
+  let slotsRemaining = importQuota >= 999 ? Infinity : importQuota - existingCountSnap.data().count;
+
   const errors: ImportResult['errors'] = [];
   let created = 0;
 
@@ -341,6 +362,10 @@ export async function importIntegrations(entries: ImportEntry[]): Promise<Import
         }
       }
 
+      if (slotsRemaining <= 0) {
+        throw new Error(`Integration limit reached. Upgrade to Pro for unlimited integrations.`);
+      }
+
       const id = randomUUID();
       const now = Date.now();
       await adminDb.collection('integrations').doc(id).set({
@@ -359,6 +384,7 @@ export async function importIntegrations(entries: ImportEntry[]): Promise<Import
       } satisfies IntegrationRecord);
 
       created++;
+      slotsRemaining--;
     } catch (err: unknown) {
       errors.push({ index: i, name: label, message: (err as Error).message });
     }

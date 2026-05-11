@@ -3,10 +3,10 @@
 
 export type TenantPlan = "free" | "starter" | "pro";
 
-export const PLAN_DEFAULTS: Record<TenantPlan, { docQuota: number; queryQuota: number; storageMB: number }> = {
-  free:    { docQuota: 5,   queryQuota: 20,   storageMB: 100   },
-  starter: { docQuota: 25,  queryQuota: 500,  storageMB: 1024  },
-  pro:     { docQuota: 999, queryQuota: 2000, storageMB: 10240 },
+export const PLAN_DEFAULTS: Record<TenantPlan, { docQuota: number; queryQuota: number; storageMB: number; integrationQuota: number }> = {
+  free:    { docQuota: 5,   queryQuota: 20,   storageMB: 100,   integrationQuota: 0   },
+  starter: { docQuota: 25,  queryQuota: 500,  storageMB: 1024,  integrationQuota: 5   },
+  pro:     { docQuota: 999, queryQuota: 2000, storageMB: 10240, integrationQuota: 999 },
 };
 
 export const PLAN_PRICES: Record<'starter' | 'pro', { monthly: number; label: string }> = {

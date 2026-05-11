@@ -130,9 +130,10 @@ export async function upgradeTenantPlan(
     plan,
     stripeCustomerId,
     paidAt: Date.now(),
-    docQuota:   defaults.docQuota,
-    queryQuota: defaults.queryQuota,
-    storageMB:  defaults.storageMB,
+    docQuota:          defaults.docQuota,
+    queryQuota:        defaults.queryQuota,
+    storageMB:         defaults.storageMB,
+    integrationQuota:  defaults.integrationQuota,
   });
 }
 
@@ -141,8 +142,9 @@ export async function downgradeTenantToFree(tenantId: string) {
   await adminDb.doc(`tenants/${tenantId}`).update({
     plan: 'free' as TenantPlan,
     paidAt: null,
-    docQuota:   defaults.docQuota,
-    queryQuota: defaults.queryQuota,
-    storageMB:  defaults.storageMB,
+    docQuota:          defaults.docQuota,
+    queryQuota:        defaults.queryQuota,
+    storageMB:         defaults.storageMB,
+    integrationQuota:  defaults.integrationQuota,
   });
 }

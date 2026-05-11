@@ -62,6 +62,7 @@ import {
 import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
 } from "@/components/ui/accordion";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plug2, Plus, Pencil, Trash2, ArrowLeft, ShieldCheck, FlaskConical,
@@ -636,6 +637,7 @@ export default function IntegrationsPage() {
   const [integrations, setIntegrations] = useState<IntegrationSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [plan, setPlan] = useState<TenantPlan | null>(null);
+  const [integrationQuota, setIntegrationQuota] = useState<number>(0);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<IntegrationSummary | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm());
@@ -657,7 +659,12 @@ export default function IntegrationsPage() {
   const [testResultsOpen, setTestResultsOpen] = useState(false);
   const [retestingId, setRetestingId] = useState<string | null>(null);
 
-  useEffect(() => { getMyTenantQuota().then((q) => setPlan(q.plan)).catch(() => {}); }, []);
+  useEffect(() => {
+    getMyTenantQuota().then((q) => {
+      setPlan(q.plan);
+      setIntegrationQuota(q.integrationQuota);
+    }).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -698,6 +705,17 @@ export default function IntegrationsPage() {
       <Button variant="outline" className="mt-4" onClick={() => router.push("/dashboard")}><ArrowLeft className="mr-2 h-4 w-4" />Back to Dashboard</Button>
     </div>
   );
+
+  const atQuota = plan === "starter" && integrationQuota > 0 && integrations.length >= integrationQuota;
+  const isPro = plan === "pro";
+  const requirePro = (feature: string): boolean => {
+    if (!isPro) {
+      toast({ title: `${feature} requires Pro`, description: "Upgrade to unlock bulk import/export, template gallery, and test mode.", variant: "destructive" });
+      router.push("/dashboard/billing");
+      return false;
+    }
+    return true;
+  };
 
   const openCreate = () => { setEditTarget(null); setForm(emptyForm()); setDialogOpen(true); };
   const openEdit = (ig: IntegrationSummary) => {
@@ -810,26 +828,64 @@ export default function IntegrationsPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <Button variant="outline" size="icon" onClick={() => setHelpOpen(true)} title="Help &amp; Documentation"><HelpCircle className="h-4 w-4" /></Button>
           {integrations.length > 0 && (
-            <Button variant={selectMode ? "default" : "outline"} size="sm" onClick={() => { setSelectMode((v) => !v); setSelectedIds(new Set()); }}>
-              <FlaskConical className="h-4 w-4 mr-1.5" />{selectMode ? "Exit Test Mode" : "Test Mode"}
+            <Button variant={selectMode ? "default" : "outline"} size="sm" onClick={() => { if (!requirePro("Test Mode")) return; setSelectMode((v) => !v); setSelectedIds(new Set()); }}>
+              <FlaskConical className="h-4 w-4 mr-1.5" />{selectMode ? "Exit Test Mode" : "Test Mode"}{!isPro && <Lock className="h-3 w-3 ml-1.5 opacity-60" />}
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => { setImportInitialText(undefined); setImportOpen(true); }}><Upload className="h-4 w-4 mr-1.5" />Import</Button>
+          <Button variant="outline" size="sm" onClick={() => { if (!requirePro("Import")) return; setImportInitialText(undefined); setImportOpen(true); }}>
+            <Upload className="h-4 w-4 mr-1.5" />Import{!isPro && <Lock className="h-3 w-3 ml-1.5 opacity-60" />}
+          </Button>
           {integrations.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" disabled={exporting}><Download className="h-4 w-4 mr-1.5" />Export<ChevronDown className="h-3 w-3 ml-1" /></Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleExport("json")}>Export as JSON</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport("yaml")}>Export as YAML</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            isPro ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={exporting}><Download className="h-4 w-4 mr-1.5" />Export<ChevronDown className="h-3 w-3 ml-1" /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleExport("json")}>Export as JSON</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport("yaml")}>Export as YAML</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => requirePro("Export")}>
+                <Download className="h-4 w-4 mr-1.5" />Export<Lock className="h-3 w-3 ml-1.5 opacity-60" />
+              </Button>
+            )
           )}
-          <Button variant="outline" size="sm" onClick={() => setTemplatesOpen(true)}><Sparkles className="h-4 w-4 mr-1.5" />Templates</Button>
-          <Button onClick={openCreate}><Plus className="h-4 w-4 mr-1.5" />New Integration</Button>
+          <Button variant="outline" size="sm" onClick={() => { if (!requirePro("Template Gallery")) return; setTemplatesOpen(true); }}>
+            <Sparkles className="h-4 w-4 mr-1.5" />Templates{!isPro && <Lock className="h-3 w-3 ml-1.5 opacity-60" />}
+          </Button>
+          <Button onClick={openCreate} disabled={atQuota} title={atQuota ? "Integration limit reached. Upgrade to Pro for unlimited." : undefined}>
+            <Plus className="h-4 w-4 mr-1.5" />New Integration{atQuota && <Lock className="h-3.5 w-3.5 ml-1.5" />}
+          </Button>
         </div>
       </div>
+
+      {/* Integration quota usage bar (Starter only) */}
+      {plan === "starter" && !loading && (
+        <div className="flex items-center gap-4 rounded-lg border bg-muted/30 px-4 py-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between text-xs mb-1.5">
+              <span className="font-medium">Integrations used</span>
+              <span className={atQuota ? "text-destructive font-semibold" : "text-muted-foreground"}>
+                {integrations.length} / {integrationQuota}
+              </span>
+            </div>
+            <Progress value={integrationQuota > 0 ? Math.min((integrations.length / integrationQuota) * 100, 100) : 0} className="h-1.5" />
+          </div>
+          {atQuota ? (
+            <Button size="sm" className="shrink-0 text-xs h-8" onClick={() => router.push("/dashboard/billing")}>
+              <CreditCard className="h-3.5 w-3.5 mr-1.5" />Upgrade for unlimited
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground shrink-0">
+              Starter plan &middot;{" "}
+              <button className="underline hover:text-foreground" onClick={() => router.push("/dashboard/billing")}>upgrade to Pro</button>
+              {" "}for unlimited
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Onboarding banner */}
       {onboardingVisible && (

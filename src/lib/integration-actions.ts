@@ -272,3 +272,197 @@ export async function executeIntegration(
     return { success: false, statusCode: 0, result: msg, executedAt };
   }
 }
+
+// ─── Bulk Import ──────────────────────────────────────────────────────────────
+
+export interface ImportEntry {
+  name?: unknown;
+  description?: unknown;
+  endpoint?: unknown;
+  method?: unknown;
+  headers?: unknown;
+  bodyTemplate?: unknown;
+  parameters?: unknown;
+  enabled?: unknown;
+}
+
+export interface ImportResult {
+  created: number;
+  errors: { index: number; name: string; message: string }[];
+}
+
+export async function importIntegrations(entries: ImportEntry[]): Promise<ImportResult> {
+  const user = await getSessionUser();
+  requireAdmin(user);
+
+  const errors: ImportResult['errors'] = [];
+  let created = 0;
+
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    const label = typeof e.name === 'string' && e.name.trim() ? e.name.trim() : `entry #${i + 1}`;
+
+    try {
+      if (!e.name || typeof e.name !== 'string' || !e.name.trim()) {
+        throw new Error('name is required');
+      }
+      if (!e.endpoint || typeof e.endpoint !== 'string') {
+        throw new Error('endpoint is required');
+      }
+      validateEndpoint(e.endpoint);
+
+      const validMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+      const method = (typeof e.method === 'string' ? e.method.toUpperCase() : 'POST') as IntegrationRecord['method'];
+      if (!validMethods.includes(method)) {
+        throw new Error(`method must be one of ${validMethods.join(', ')}`);
+      }
+
+      const headers: { key: string; value: string }[] = [];
+      if (Array.isArray(e.headers)) {
+        for (const h of e.headers) {
+          if (h && typeof h === 'object' && typeof h.key === 'string' && typeof h.value === 'string') {
+            const k = h.key.trim();
+            if (k && isValidHeaderName(k)) headers.push({ key: k, value: h.value });
+          }
+        }
+      }
+
+      const parameters: IntegrationParameter[] = [];
+      if (Array.isArray(e.parameters)) {
+        for (const p of e.parameters) {
+          if (p && typeof p === 'object' && typeof p.name === 'string' && p.name.trim()) {
+            parameters.push({
+              name: p.name.trim(),
+              type: ['string', 'number', 'boolean'].includes(p.type) ? p.type : 'string',
+              description: typeof p.description === 'string' ? p.description : '',
+              required: Boolean(p.required),
+            });
+          }
+        }
+      }
+
+      const id = randomUUID();
+      const now = Date.now();
+      await adminDb.collection('integrations').doc(id).set({
+        id,
+        tenantId: user!.tenantId,
+        name: e.name.trim(),
+        description: typeof e.description === 'string' ? e.description.trim() : '',
+        enabled: e.enabled !== false,
+        endpoint: (e.endpoint as string).trim(),
+        method,
+        headers,
+        bodyTemplate: typeof e.bodyTemplate === 'string' ? e.bodyTemplate : '',
+        parameters,
+        createdAt: now,
+        updatedAt: now,
+      } satisfies IntegrationRecord);
+
+      created++;
+    } catch (err: unknown) {
+      errors.push({ index: i, name: label, message: (err as Error).message });
+    }
+  }
+
+  return { created, errors };
+}
+
+// ─── Export ───────────────────────────────────────────────────────────────────
+
+export interface ExportedIntegration {
+  name: string;
+  description: string;
+  enabled: boolean;
+  endpoint: string;
+  method: IntegrationRecord['method'];
+  bodyTemplate: string;
+  parameters: IntegrationParameter[];
+  // headers intentionally excluded — values are secrets
+}
+
+export async function exportIntegrations(): Promise<ExportedIntegration[]> {
+  const user = await getSessionUser();
+  requireAdmin(user);
+
+  const snap = await adminDb
+    .collection('integrations')
+    .where('tenantId', '==', user!.tenantId)
+    .get();
+
+  return snap.docs
+    .map((d) => {
+      const r = d.data() as IntegrationRecord;
+      return {
+        name: r.name,
+        description: r.description,
+        enabled: r.enabled,
+        endpoint: r.endpoint,
+        method: r.method,
+        bodyTemplate: r.bodyTemplate,
+        parameters: r.parameters,
+      } satisfies ExportedIntegration;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ─── Bulk Test ────────────────────────────────────────────────────────────────
+
+export interface TestIntegrationResult {
+  id: string;
+  name: string;
+  success: boolean;
+  statusCode: number;
+  latencyMs: number;
+  error: string;
+}
+
+export async function testIntegrations(ids: string[]): Promise<TestIntegrationResult[]> {
+  const user = await getSessionUser();
+  if (!user) throw new Error('Unauthorized.');
+
+  const results = await Promise.allSettled(
+    ids.map(async (id): Promise<TestIntegrationResult> => {
+      const snap = await adminDb.collection('integrations').doc(id).get();
+      if (!snap.exists) return { id, name: id, success: false, statusCode: 0, latencyMs: 0, error: 'Not found' };
+
+      const integration = snap.data() as IntegrationRecord;
+      if (integration.tenantId !== user.tenantId) {
+        return { id, name: id, success: false, statusCode: 0, latencyMs: 0, error: 'Not found' };
+      }
+
+      // Build placeholder params
+      const testParams: Record<string, unknown> = {};
+      for (const p of integration.parameters) {
+        testParams[p.name] = p.type === 'number' ? 0 : p.type === 'boolean' ? false : '__test__';
+      }
+
+      const start = Date.now();
+      try {
+        const res = await executeIntegration(id, testParams);
+        return {
+          id,
+          name: integration.name,
+          success: res.success,
+          statusCode: res.statusCode,
+          latencyMs: Date.now() - start,
+          error: res.success ? '' : res.result.slice(0, 200),
+        };
+      } catch (err: unknown) {
+        return {
+          id,
+          name: integration.name,
+          success: false,
+          statusCode: 0,
+          latencyMs: Date.now() - start,
+          error: (err as Error).message,
+        };
+      }
+    })
+  );
+
+  return results.map((r, i) =>
+    r.status === 'fulfilled'
+      ? r.value
+      : { id: ids[i], name: ids[i], success: false, statusCode: 0, latencyMs: 0, error: (r.reason as Error).message }
+  );
+}

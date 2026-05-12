@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState, useRef, useEffect, Suspense } from "react";
+import React, { useState, useRef, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useStore, ChatMessage } from "@/lib/store";
 import { useChats } from "@/hooks/useChats";
@@ -56,8 +56,249 @@ import {
   CreditCard,
 } from "lucide-react";
 import { getAIPoweredAnswersFromDocuments } from "@/ai/flows/get-ai-powered-answers-from-documents";
+import { interpretActionResult } from "@/ai/flows/interpret-action-result";
 import { executeIntegration } from "@/lib/integration-actions";
 import { cn } from "@/lib/utils";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Render common Markdown patterns without any external dependency. */
+function MarkdownContent({ content }: { content: string }) {
+  const lines = content.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+
+  const renderInline = (text: string): React.ReactNode[] => {
+    const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith("**") && part.endsWith("**")) return <strong key={idx}>{part.slice(2, -2)}</strong>;
+      if (part.startsWith("`") && part.endsWith("`")) return <code key={idx} className="bg-muted px-1 py-0.5 rounded text-xs font-mono">{part.slice(1, -1)}</code>;
+      if (part.startsWith("*") && part.endsWith("*")) return <em key={idx}>{part.slice(1, -1)}</em>;
+      return part;
+    });
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Heading
+    const hMatch = line.match(/^(#{1,3})\s+(.+)/);
+    if (hMatch) {
+      const level = hMatch[1].length;
+      const cls = level === 1 ? "text-base font-bold mt-3 mb-1" : level === 2 ? "text-sm font-bold mt-2 mb-1" : "text-sm font-semibold mt-1.5 mb-0.5";
+      elements.push(<p key={i} className={cls}>{renderInline(hMatch[2])}</p>);
+      i++; continue;
+    }
+
+    // Bullet list — collect consecutive items
+    if (/^[-*•]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*•]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^[-*•]\s+/, "")); i++;
+      }
+      elements.push(<ul key={`ul-${i}`} className="list-disc pl-4 my-1 space-y-0.5">{items.map((item, j) => <li key={j} className="text-sm">{renderInline(item)}</li>)}</ul>);
+      continue;
+    }
+
+    // Numbered list
+    if (/^\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+\.\s+/, "")); i++;
+      }
+      elements.push(<ol key={`ol-${i}`} className="list-decimal pl-4 my-1 space-y-0.5">{items.map((item, j) => <li key={j} className="text-sm">{renderInline(item)}</li>)}</ol>);
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) { elements.push(<hr key={i} className="my-2 border-border" />); i++; continue; }
+
+    // Empty line
+    if (!line.trim()) { elements.push(<div key={i} className="h-1.5" />); i++; continue; }
+
+    // Normal paragraph
+    elements.push(<p key={i} className="text-sm leading-relaxed">{renderInline(line)}</p>);
+    i++;
+  }
+
+  return <div className="space-y-0.5">{elements}</div>;
+}
+
+// ─── Smart result renderer helpers ──────────────────────────────────────────
+
+/** camelCase / snake_case → "Title Case" */
+function toTitleCase(key: string): string {
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/\bid\b/gi, 'ID')
+    .replace(/\burl\b/gi, 'URL')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Format a cell value for display. */
+function formatCell(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  // ISO datetime → locale date string
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    try { return new Date(s).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); } catch { /* fall through */ }
+  }
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  return s.length > 60 ? s.slice(0, 60) + '…' : s;
+}
+
+/** Score a field key/values to decide if it's worth showing. Lower = better. */
+function fieldScore(key: string, values: unknown[]): number {
+  let score = 0;
+  const nonNull = values.filter((v) => v !== null && v !== undefined && v !== '');
+  // Penalise high-null fields
+  if (nonNull.length / values.length < 0.3) score += 50;
+  // Penalise likely UUID / hash columns
+  if (/^(id|_id|uuid|hash|token|key|secret|password|code|sku|ref)$/i.test(key)) score += 30;
+  if (nonNull.slice(0, 5).every((v) => /^[a-f0-9]{8,}$/i.test(String(v)))) score += 20;
+  // Penalise deeply nested / object values
+  if (nonNull.slice(0, 3).some((v) => typeof v === 'object' && v !== null)) score += 40;
+  // Reward date-like keys
+  if (/(date|at|time|created|updated|deadline|posted)/i.test(key)) score -= 10;
+  // Reward name / title / description keys
+  if (/(name|title|desc|label|status|stage|agency|type)/i.test(key)) score -= 10;
+  return score;
+}
+
+const ROW_LIMIT = 25;
+const COL_LIMIT = 8;
+
+function DataTable({ items, extraMeta }: { items: Record<string, unknown>[]; extraMeta?: [string, unknown][] }) {
+  const [showAll, setShowAll] = React.useState(false);
+  const [showAllCols, setShowAllCols] = React.useState(false);
+
+  const allKeys = Object.keys(items[0] ?? {});
+  const scored = allKeys
+    .map((k) => ({ k, score: fieldScore(k, items.map((r) => r[k])) }))
+    .sort((a, b) => a.score - b.score);
+  const visibleKeys = showAllCols ? allKeys : scored.slice(0, COL_LIMIT).map((s) => s.k);
+  const hiddenCount = allKeys.length - COL_LIMIT;
+
+  const displayRows = showAll ? items : items.slice(0, ROW_LIMIT);
+
+  return (
+    <div className="space-y-2">
+      {/* Meta bar */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-xs font-semibold text-muted-foreground">
+          <strong className="text-foreground text-sm">{items.length}</strong> record{items.length !== 1 ? 's' : ''}
+        </span>
+        {extraMeta?.map(([k, v]) => (
+          <span key={k} className="text-xs text-muted-foreground">
+            <span className="font-semibold">{toTitleCase(k)}:</span> {String(v)}
+          </span>
+        ))}
+        {!showAllCols && hiddenCount > 0 && (
+          <button
+            className="text-xs text-primary font-medium underline underline-offset-2"
+            onClick={() => setShowAllCols(true)}
+          >
+            +{hiddenCount} more columns
+          </button>
+        )}
+      </div>
+
+      {/* Scrollable table */}
+      <div className="overflow-x-auto overflow-y-auto max-h-80 rounded-lg border border-border text-xs touch-pan-x shadow-sm">
+        <table className="min-w-full border-collapse">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-primary/10 border-b-2 border-primary/20">
+              {visibleKeys.map((k) => (
+                <th key={k} className="px-3 py-2 text-left text-[11px] font-bold text-primary/80 uppercase tracking-wide whitespace-nowrap">
+                  {toTitleCase(k)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {displayRows.map((row, i) => (
+              <tr
+                key={i}
+                className={cn(
+                  "transition-colors hover:bg-primary/5",
+                  i % 2 === 0 ? "bg-background" : "bg-muted/30"
+                )}
+              >
+                {visibleKeys.map((k) => {
+                  const raw = row[k];
+                  const display = formatCell(raw);
+                  const full = raw === null || raw === undefined ? '' : String(raw);
+                  return (
+                    <td key={k} className="px-3 py-2 border-b border-border/30 align-top">
+                      <div className="max-w-[160px] truncate leading-snug" title={full || undefined}>
+                        {!display ? (
+                          <span className="text-muted-foreground/40">—</span>
+                        ) : (
+                          display
+                        )}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {!showAll && items.length > ROW_LIMIT && (
+        <button
+          className="text-xs text-primary font-medium underline underline-offset-2"
+          onClick={() => setShowAll(true)}
+        >
+          Show all {items.length} rows
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Try to parse a JSON result and render it as a structured visual. */
+function SmartResultRenderer({ raw }: { raw: string }) {
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { /* not JSON */ }
+
+  // Array of objects → table
+  if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "object" && parsed[0] !== null) {
+    return <DataTable items={parsed as Record<string, unknown>[]} />;
+  }
+
+  // Object with a top-level array property (e.g. { bids: [...], total: 3 })
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const obj = parsed as Record<string, unknown>;
+    const arrayKey = Object.keys(obj).find(
+      (k) => Array.isArray(obj[k]) && (obj[k] as unknown[]).length > 0 && typeof (obj[k] as unknown[])[0] === "object"
+    );
+    if (arrayKey) {
+      const items = obj[arrayKey] as Record<string, unknown>[];
+      const meta = Object.entries(obj).filter(([k]) => k !== arrayKey) as [string, unknown][];
+      return <DataTable items={items} extraMeta={meta} />;
+    }
+    // Plain object → key/value grid
+    return (
+      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs rounded-lg border border-border p-3 bg-muted/20">
+        {Object.entries(obj).map(([k, v]) => (
+          <React.Fragment key={k}>
+            <span className="font-semibold text-muted-foreground whitespace-nowrap text-[11px] uppercase tracking-wide">{toTitleCase(k)}</span>
+            <span className="break-all text-foreground" title={String(v ?? "")}>
+              {v === null || v === undefined ? <span className="opacity-30">—</span> : formatCell(v)}
+            </span>
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  }
+
+  // Fallback — raw text
+  return <pre className="whitespace-pre-wrap break-all text-xs max-h-48 overflow-auto font-mono bg-muted/30 p-3 rounded-lg border border-border">{raw}</pre>;
+}
 
 // useSearchParams requires Suspense in Next.js 14+
 export default function ChatPage() {
@@ -106,6 +347,7 @@ function ChatContent() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [runningActionIdx, setRunningActionIdx] = useState<number | null>(null);
+  const [interpretingActionIdx, setInterpretingActionIdx] = useState<number | null>(null);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -191,18 +433,19 @@ function ChatContent() {
     const message = currentChat.messages[msgIdx];
     if (!message?.proposedAction) return;
     setRunningActionIdx(msgIdx);
+    let execResult: Awaited<ReturnType<typeof executeIntegration>> | null = null;
     try {
-      const result = await executeIntegration(
+      execResult = await executeIntegration(
         message.proposedAction.integrationId,
         message.proposedAction.parameters
       );
       await patchMessage(chatId, msgIdx, {
         executedAction: {
           integrationName: message.proposedAction.integrationName,
-          success: result.success,
-          statusCode: result.statusCode,
-          result: result.result,
-          executedAt: result.executedAt,
+          success: execResult.success,
+          statusCode: execResult.statusCode,
+          result: execResult.result,
+          executedAt: execResult.executedAt,
         },
       });
     } catch (e: unknown) {
@@ -217,6 +460,26 @@ function ChatContent() {
       });
     } finally {
       setRunningActionIdx(null);
+    }
+
+    // Auto-interpretation — only on success, non-blocking
+    if (execResult?.success && execResult.result) {
+      setInterpretingActionIdx(msgIdx);
+      try {
+        const interpretation = await interpretActionResult({
+          actionName: message.proposedAction.integrationName,
+          parameters: message.proposedAction.parameters as Record<string, unknown>,
+          statusCode: execResult.statusCode,
+          result: execResult.result,
+        });
+        if (interpretation) {
+          await addMessage(chatId, { role: "model", content: interpretation });
+        }
+      } catch {
+        // silent
+      } finally {
+        setInterpretingActionIdx(null);
+      }
     }
   };
 
@@ -345,8 +608,8 @@ function ChatContent() {
           </div>
         )}
 
-        {/* Messages */}
-        <ScrollArea className="flex-1 p-4 md:p-6 bg-background/40">
+        {/* Messages — plain div so nested tables can scroll horizontally (ScrollArea root has overflow:hidden which clips them) */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 bg-background/40">
           <div className="space-y-6 pb-4">
             {!currentChat?.messages.length && !isLoading && (
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
@@ -409,8 +672,12 @@ function ChatContent() {
 
                 <div
                   className={cn(
-                    "flex flex-col space-y-2 max-w-[85%]",
-                    message.role === "user" ? "items-end" : "items-start"
+                    "flex flex-col space-y-2",
+                    message.role === "user" ? "items-end max-w-[85%]" : "items-start",
+                    // Widen to full available width when there's a table result to scroll
+                    message.role === "model" && message.executedAction
+                      ? "w-[calc(100%-2.25rem)] sm:w-[calc(100%-2.75rem)]"
+                      : message.role === "model" ? "max-w-[92%] sm:max-w-[85%]" : ""
                   )}
                 >
                   {message.role === "model" && message.content === "__QUOTA_EXCEEDED__" ? (
@@ -432,13 +699,17 @@ function ChatContent() {
                   ) : (
                   <div
                     className={cn(
-                      "p-4 rounded-2xl text-sm leading-relaxed shadow-sm whitespace-pre-wrap",
+                      "p-4 rounded-2xl text-sm leading-relaxed shadow-sm",
                       message.role === "user"
-                        ? "bg-primary text-primary-foreground rounded-tr-none"
+                        ? "bg-primary text-primary-foreground rounded-tr-none whitespace-pre-wrap"
                         : "bg-secondary text-secondary-foreground border border-border rounded-tl-none"
                     )}
                   >
-                    {message.content}
+                    {message.role === "user" ? (
+                      message.content
+                    ) : (
+                      <MarkdownContent content={message.content} />
+                    )}
                   </div>
                   )}
 
@@ -514,26 +785,31 @@ function ChatContent() {
                   {/* Executed action result */}
                   {message.role === "model" && message.executedAction && (
                     <div className={cn(
-                      "mt-2 rounded-xl p-3 w-full border text-xs",
+                      "mt-2 rounded-xl p-3 sm:p-4 w-full border",
                       message.executedAction.dismissed
-                        ? "border-border bg-muted/40 text-muted-foreground"
+                        ? "border-border bg-muted/30 text-muted-foreground"
                         : message.executedAction.success
-                          ? "border-green-200 bg-green-50 text-green-800"
-                          : "border-red-200 bg-red-50 text-red-800"
+                          ? "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/40"
+                          : "border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950/40"
                     )}>
-                      <div className="flex items-center gap-1.5 font-medium mb-1">
+                      <div className={cn(
+                        "flex items-center gap-2 font-semibold text-sm mb-3",
+                        message.executedAction.dismissed
+                          ? "text-muted-foreground"
+                          : message.executedAction.success
+                            ? "text-emerald-700 dark:text-emerald-400"
+                            : "text-red-700 dark:text-red-400"
+                      )}>
                         {message.executedAction.dismissed ? (
-                          <><XCircle className="w-3.5 h-3.5" />Action dismissed</>
+                          <><XCircle className="w-4 h-4 shrink-0" /><span>Action dismissed</span></>
                         ) : message.executedAction.success ? (
-                          <><CheckCircle2 className="w-3.5 h-3.5" />{message.executedAction.integrationName} — Success ({message.executedAction.statusCode})</>
+                          <><CheckCircle2 className="w-4 h-4 shrink-0" /><span>{message.executedAction.integrationName} — Success <span className="font-normal opacity-70">({message.executedAction.statusCode})</span></span></>
                         ) : (
-                          <><XCircle className="w-3.5 h-3.5" />{message.executedAction.integrationName} — Failed ({message.executedAction.statusCode})</>
+                          <><XCircle className="w-4 h-4 shrink-0" /><span>{message.executedAction.integrationName} — Failed <span className="font-normal opacity-70">({message.executedAction.statusCode})</span></span></>
                         )}
                       </div>
                       {!message.executedAction.dismissed && message.executedAction.result && (
-                        <pre className="mt-1 whitespace-pre-wrap break-all opacity-80 text-[10px] max-h-24 overflow-auto">
-                          {message.executedAction.result}
-                        </pre>
+                        <SmartResultRenderer raw={message.executedAction.result} />
                       )}
                     </div>
                   )}
@@ -554,10 +830,24 @@ function ChatContent() {
                 </div>
               </div>
             )}
+
+            {interpretingActionIdx !== null && (
+              <div className="flex gap-3">
+                <div className="w-8 h-8 rounded-full bg-accent text-accent-foreground flex items-center justify-center shrink-0">
+                  <Bot className="w-4 h-4" />
+                </div>
+                <div className="p-4 rounded-2xl bg-secondary border border-border rounded-tl-none">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                    <span>Analyzing results…</span>
+                  </div>
+                </div>
+              </div>
+            )}
             {/* Sentinel — keep at end so scroll always lands here */}
             <div ref={messagesEndRef} />
           </div>
-        </ScrollArea>
+        </div>
 
         {/* Input bar */}
         <div className="p-4 border-t border-border bg-card shrink-0">

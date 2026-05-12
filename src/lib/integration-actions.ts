@@ -12,6 +12,7 @@ export interface IntegrationParameter {
   type: 'string' | 'number' | 'boolean';
   description: string;
   required: boolean;
+  testValue?: string;  // value to use when running test calls
 }
 
 export interface IntegrationRecord {
@@ -66,6 +67,15 @@ function substituteParams(
   });
 }
 
+/** Trim whitespace and auto-prepend `Bearer ` for bare Authorization tokens. */
+function normalizeHeaderValue(key: string, value: string): string {
+  const v = value.trim();
+  if (key.trim().toLowerCase() === 'authorization' && v && !/^[A-Za-z]+ /u.test(v)) {
+    return 'Bearer ' + v;
+  }
+  return v;
+}
+
 // ─── CRUD ─────────────────────────────────────────────────────────────────────
 
 export async function createIntegration(data: {
@@ -104,7 +114,7 @@ export async function createIntegration(data: {
     enabled: true,
     endpoint: data.endpoint.trim(),
     method: data.method,
-    headers: data.headers.filter((h) => h.key.trim() && isValidHeaderName(h.key.trim())).map(h => ({ key: h.key.trim(), value: h.value.trim() })),
+    headers: data.headers.filter((h) => h.key.trim() && isValidHeaderName(h.key.trim())).map(h => ({ key: h.key.trim(), value: normalizeHeaderValue(h.key, h.value) })),
     bodyTemplate: data.bodyTemplate,
     parameters: data.parameters,
     createdAt: now,
@@ -154,6 +164,17 @@ export async function listAllIntegrations(): Promise<IntegrationSummary[]> {
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
+/** Returns the raw headers (including secret values) for an integration. Admin-only. */
+export async function getIntegrationHeaders(id: string): Promise<{ key: string; value: string }[]> {
+  const user = await getSessionUser();
+  requireAdmin(user);
+  const snap = await adminDb.collection('integrations').doc(id).get();
+  if (!snap.exists) throw new Error('Integration not found.');
+  const record = snap.data() as IntegrationRecord;
+  if (record.tenantId !== user!.tenantId) throw new Error('Not found.');
+  return record.headers ?? [];
+}
+
 export async function updateIntegration(
   id: string,
   data: Partial<{
@@ -178,9 +199,9 @@ export async function updateIntegration(
   }
   if (data.endpoint) validateEndpoint(data.endpoint);
 
-  // Normalize header key/value whitespace before writing
+  // Normalize header key/value whitespace and auto-prefix bare Authorization tokens
   const normalized = data.headers
-    ? { ...data, headers: data.headers.map(h => ({ key: h.key.trim(), value: h.value.trim() })) }
+    ? { ...data, headers: data.headers.map(h => ({ key: h.key.trim(), value: normalizeHeaderValue(h.key, h.value) })) }
     : data;
 
   await ref.update({ ...normalized, updatedAt: Date.now() });
@@ -200,6 +221,43 @@ export async function deleteIntegration(id: string): Promise<void> {
 }
 
 // ─── Execute ──────────────────────────────────────────────────────────────────
+
+/**
+ * Truncates an API response string while keeping JSON parseable.
+ * - JSON array  → first 100 items re-stringified
+ * - JSON object with array property → first 100 items of that array
+ * - Other JSON  → pass through (objects are small enough)
+ * - Not JSON    → hard cap at 50,000 chars
+ */
+function truncateResult(text: string): string {
+  const ITEM_LIMIT = 100;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      const truncated = parsed.slice(0, ITEM_LIMIT);
+      const out = JSON.stringify(truncated);
+      return parsed.length > ITEM_LIMIT
+        ? out.slice(0, -1) + ']' // already sliced, just return directly
+        : out;
+    }
+    if (parsed && typeof parsed === 'object') {
+      const obj = parsed as Record<string, unknown>;
+      const arrayKey = Object.keys(obj).find(
+        (k) => Array.isArray(obj[k]) && (obj[k] as unknown[]).length > ITEM_LIMIT
+      );
+      if (arrayKey) {
+        return JSON.stringify({
+          ...obj,
+          [arrayKey]: (obj[arrayKey] as unknown[]).slice(0, ITEM_LIMIT),
+        });
+      }
+    }
+    return text; // valid JSON that doesn't need truncation
+  } catch {
+    // Not JSON — cap at 50k chars so Firestore doesn't reject the document
+    return text.length > 50_000 ? text.slice(0, 50_000) + '…' : text;
+  }
+}
 
 export interface ExecuteIntegrationResult {
   success: boolean;
@@ -237,7 +295,7 @@ export async function executeIntegration(
   };
   for (const { key, value } of integration.headers) {
     const k = key.trim();
-    if (k && isValidHeaderName(k)) reqHeaders[k] = value.trim();
+    if (k && isValidHeaderName(k)) reqHeaders[k] = normalizeHeaderValue(k, value);
   }
 
   // Build body
@@ -270,8 +328,8 @@ export async function executeIntegration(
 
     statusCode = response.status;
     const text = await response.text();
-    // Truncate long responses
-    result = text.length > 2000 ? text.slice(0, 2000) + '…' : text;
+    // JSON-aware truncation — keeps the response parseable for the UI renderer
+    result = truncateResult(text);
 
     // Log execution (non-fatal)
     adminDb.collection('integrationLogs').add({
@@ -461,10 +519,14 @@ export async function testIntegrations(ids: string[]): Promise<TestIntegrationRe
         return { id, name: id, success: false, statusCode: 0, latencyMs: 0, error: 'Not found' };
       }
 
-      // Build placeholder params
+      // Build placeholder params — use testValue if set, otherwise fall back by type
       const testParams: Record<string, unknown> = {};
       for (const p of integration.parameters) {
-        testParams[p.name] = p.type === 'number' ? 0 : p.type === 'boolean' ? false : '__test__';
+        if (p.testValue?.trim()) {
+          testParams[p.name] = p.type === 'number' ? Number(p.testValue) : p.type === 'boolean' ? p.testValue === 'true' : p.testValue.trim();
+        } else {
+          testParams[p.name] = p.type === 'number' ? 0 : p.type === 'boolean' ? false : '__test__';
+        }
       }
 
       const start = Date.now();

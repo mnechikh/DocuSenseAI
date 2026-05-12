@@ -17,6 +17,7 @@ import {
   importIntegrations,
   exportIntegrations,
   testIntegrations,
+  getIntegrationHeaders,
   type IntegrationSummary,
   type IntegrationParameter,
   type ImportEntry,
@@ -658,7 +659,7 @@ export default function IntegrationsPage() {
   const [testResults, setTestResults] = useState<TestIntegrationResult[]>([]);
   const [testResultsOpen, setTestResultsOpen] = useState(false);
   const [retestingId, setRetestingId] = useState<string | null>(null);
-  const [headersModified, setHeadersModified] = useState(false);
+  const [headersLoading, setHeadersLoading] = useState(false);
   const [revealedHeaders, setRevealedHeaders] = useState<Set<number>>(new Set());
 
   useEffect(() => {
@@ -719,13 +720,21 @@ export default function IntegrationsPage() {
     return true;
   };
 
-  const openCreate = () => { setEditTarget(null); setRevealedHeaders(new Set()); setHeadersModified(false); setForm(emptyForm()); setDialogOpen(true); };
-  const openEdit = (ig: IntegrationSummary) => {
+  const openCreate = () => { setEditTarget(null); setRevealedHeaders(new Set()); setForm(emptyForm()); setDialogOpen(true); };
+  const openEdit = async (ig: IntegrationSummary) => {
     setEditTarget(ig);
-    setHeadersModified(false);
     setRevealedHeaders(new Set());
     setForm({ name: ig.name, description: ig.description, endpoint: ig.endpoint, method: ig.method, headers: [], bodyTemplate: ig.bodyTemplate, parameters: ig.parameters });
     setDialogOpen(true);
+    setHeadersLoading(true);
+    try {
+      const savedHeaders = await getIntegrationHeaders(ig.id);
+      setForm((f) => ({ ...f, headers: savedHeaders.length > 0 ? savedHeaders : [] }));
+    } catch {
+      // non-fatal — user can still edit other fields
+    } finally {
+      setHeadersLoading(false);
+    }
   };
 
   const handleSave = async () => {
@@ -736,7 +745,7 @@ export default function IntegrationsPage() {
     try {
       const filteredHeaders = form.headers.filter((h) => h.key.trim());
       if (editTarget) {
-        const updatePayload: Parameters<typeof updateIntegration>[1] = { name: form.name.trim(), description: form.description.trim(), endpoint: form.endpoint.trim(), method: form.method, bodyTemplate: form.bodyTemplate, parameters: form.parameters.filter((p) => p.name.trim()), ...(headersModified && { headers: filteredHeaders }) };
+        const updatePayload: Parameters<typeof updateIntegration>[1] = { name: form.name.trim(), description: form.description.trim(), endpoint: form.endpoint.trim(), method: form.method, bodyTemplate: form.bodyTemplate, parameters: form.parameters.filter((p) => p.name.trim()), headers: filteredHeaders };
         await updateIntegration(editTarget.id, updatePayload); toast({ title: "Integration updated" });
       } else {
         await createIntegration({ name: form.name.trim(), description: form.description.trim(), endpoint: form.endpoint.trim(), method: form.method, headers: filteredHeaders, bodyTemplate: form.bodyTemplate, parameters: form.parameters.filter((p) => p.name.trim()) }); toast({ title: "Integration created" });
@@ -765,7 +774,14 @@ export default function IntegrationsPage() {
     setTestingId(ig.id);
     try {
       const testParams: Record<string, unknown> = {};
-      for (const p of ig.parameters) testParams[p.name] = p.type === "number" ? 0 : p.type === "boolean" ? false : "test";
+      for (const p of ig.parameters) {
+        if ((p as IntegrationParameter & { testValue?: string }).testValue?.trim()) {
+          const tv = ((p as IntegrationParameter & { testValue?: string }).testValue ?? '').trim();
+          testParams[p.name] = p.type === 'number' ? Number(tv) : p.type === 'boolean' ? tv === 'true' : tv;
+        } else {
+          testParams[p.name] = p.type === 'number' ? 0 : p.type === 'boolean' ? false : 'test';
+        }
+      }
       const result = await executeIntegration(ig.id, testParams);
       toast({ title: result.success ? `Test succeeded (${result.statusCode})` : `Test failed (${result.statusCode})`, description: result.result.slice(0, 200), variant: result.success ? "default" : "destructive" });
     } catch (e: unknown) { toast({ title: "Test error", description: (e as Error).message, variant: "destructive" }); }
@@ -809,11 +825,11 @@ export default function IntegrationsPage() {
   const toggleSelectAll = () => setSelectedIds(selectedIds.size === integrations.length ? new Set() : new Set(integrations.map((i) => i.id)));
   const dismissOnboarding = () => { localStorage.setItem(ONBOARDING_KEY, "1"); setOnboardingVisible(false); };
 
-  const addHeader = () => { setHeadersModified(true); setForm((f) => ({ ...f, headers: [...f.headers, { key: "", value: "" }] })); };
-  const removeHeader = (i: number) => { setHeadersModified(true); setRevealedHeaders((prev) => { const n = new Set(prev); n.delete(i); return n; }); setForm((f) => ({ ...f, headers: f.headers.filter((_, idx) => idx !== i) })); };
-  const updateHeader = (i: number, field: "key" | "value", val: string) => { setHeadersModified(true); setForm((f) => { const h = [...f.headers]; h[i] = { ...h[i], [field]: val }; return { ...f, headers: h }; }); };
+  const addHeader = () => { setForm((f) => ({ ...f, headers: [...f.headers, { key: "", value: "" }] })); };
+  const removeHeader = (i: number) => { setRevealedHeaders((prev) => { const n = new Set(prev); n.delete(i); return n; }); setForm((f) => ({ ...f, headers: f.headers.filter((_, idx) => idx !== i) })); };
+  const updateHeader = (i: number, field: "key" | "value", val: string) => { setForm((f) => { const h = [...f.headers]; h[i] = { ...h[i], [field]: val }; return { ...f, headers: h }; }); };
   const toggleRevealHeader = (i: number) => setRevealedHeaders((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
-  const addParam = () => setForm((f) => ({ ...f, parameters: [...f.parameters, { name: "", type: "string", description: "", required: true }] }));
+  const addParam = () => setForm((f) => ({ ...f, parameters: [...f.parameters, { name: "", type: "string", description: "", required: true, testValue: "" }] }));
   const removeParam = (i: number) => setForm((f) => ({ ...f, parameters: f.parameters.filter((_, idx) => idx !== i) }));
   const updateParam = (i: number, field: keyof IntegrationParameter, val: unknown) => setForm((f) => { const p = [...f.parameters]; p[i] = { ...p[i], [field]: val }; return { ...f, parameters: p }; });
 
@@ -1064,49 +1080,50 @@ export default function IntegrationsPage() {
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label>Headers <span className="text-xs text-muted-foreground">(API keys, auth tokens — stored securely)</span></Label>
-                <Button variant="outline" size="sm" onClick={addHeader} type="button"><Plus className="h-3 w-3 mr-1" />Add</Button>
+                <Button variant="outline" size="sm" onClick={addHeader} type="button" disabled={headersLoading}><Plus className="h-3 w-3 mr-1" />Add</Button>
               </div>
-              {editTarget && !headersModified && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-2.5 py-1.5">
-                  Saved headers are preserved server-side and not shown here. Add a row only if you want to replace them.
-                </p>
-              )}
-              <div className="space-y-2">
-                {form.headers.map((h, i) => (
-                  <div key={i} className="flex gap-2">
-                    <Input
-                      placeholder="Authorization"
-                      value={h.key}
-                      onChange={(e) => updateHeader(i, "key", e.target.value)}
-                      className="flex-1"
-                      autoComplete="off"
-                      data-lpignore="true"
-                      data-1p-ignore
-                    />
-                    <div className="flex-1 relative">
+              {headersLoading ? (
+                <p className="text-xs text-muted-foreground py-1">Loading saved headers…</p>
+              ) : form.headers.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-1">No headers configured. Click Add to set an API key or auth token.</p>
+              ) : (
+                <div className="space-y-2">
+                  {form.headers.map((h, i) => (
+                    <div key={i} className="flex gap-2">
                       <Input
-                        placeholder="Bearer otk_…"
-                        value={h.value}
-                        onChange={(e) => updateHeader(i, "value", e.target.value)}
-                        className="pr-9 font-mono text-xs"
-                        type={revealedHeaders.has(i) ? "password" : "text"}
+                        placeholder="Authorization"
+                        value={h.key}
+                        onChange={(e) => updateHeader(i, "key", e.target.value)}
+                        className="flex-[2]"
                         autoComplete="off"
                         data-lpignore="true"
                         data-1p-ignore
                       />
-                      <button
-                        type="button"
-                        onClick={() => toggleRevealHeader(i)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        tabIndex={-1}
-                      >
-                        {revealedHeaders.has(i) ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                      </button>
+                      <div className="flex-[3] relative">
+                        <Input
+                          placeholder="Bearer otk_…"
+                          value={h.value}
+                          onChange={(e) => updateHeader(i, "value", e.target.value)}
+                          className="pr-9 font-mono text-xs"
+                          type={revealedHeaders.has(i) ? "text" : "password"}
+                          autoComplete="off"
+                          data-lpignore="true"
+                          data-1p-ignore
+                        />
+                        <button
+                          type="button"
+                          onClick={() => toggleRevealHeader(i)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          tabIndex={-1}
+                        >
+                          {revealedHeaders.has(i) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                      <Button variant="ghost" size="icon" onClick={() => removeHeader(i)} type="button"><X className="h-4 w-4" /></Button>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={() => removeHeader(i)} type="button"><X className="h-4 w-4" /></Button>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Body Template <span className="text-xs text-muted-foreground">(JSON; use {`{{paramName}}`} placeholders)</span></Label>
@@ -1120,7 +1137,15 @@ export default function IntegrationsPage() {
               {form.parameters.length === 0 ? (
                 <p className="text-xs text-muted-foreground">No parameters yet.</p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
+                  {/* column headers */}
+                  <div className="grid grid-cols-12 gap-2 px-0.5">
+                    <span className="col-span-3 text-xs text-muted-foreground font-medium">Name</span>
+                    <span className="col-span-2 text-xs text-muted-foreground font-medium">Type</span>
+                    <span className="col-span-3 text-xs text-muted-foreground font-medium">Test value</span>
+                    <span className="col-span-3 text-xs text-muted-foreground font-medium">AI description</span>
+                    <span className="col-span-1" />
+                  </div>
                   {form.parameters.map((p, i) => (
                     <div key={i} className="grid grid-cols-12 gap-2 items-center">
                       <Input placeholder="name" value={p.name} onChange={(e) => updateParam(i, "name", e.target.value)} className="col-span-3 text-xs font-mono" />
@@ -1128,12 +1153,20 @@ export default function IntegrationsPage() {
                         <SelectTrigger className="col-span-2 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent><SelectItem value="string">string</SelectItem><SelectItem value="number">number</SelectItem><SelectItem value="boolean">boolean</SelectItem></SelectContent>
                       </Select>
-                      <Input placeholder="Description for the AI" value={p.description} onChange={(e) => updateParam(i, "description", e.target.value)} className="col-span-5 text-xs" />
-                      <div className="col-span-1 flex items-center justify-center"><Switch checked={p.required} onCheckedChange={(v) => updateParam(i, "required", v)} /></div>
-                      <Button variant="ghost" size="icon" onClick={() => removeParam(i)} className="col-span-1"><X className="h-3.5 w-3.5" /></Button>
+                      <Input
+                        placeholder="value used when testing"
+                        value={(p as IntegrationParameter & { testValue?: string }).testValue ?? ""}
+                        onChange={(e) => updateParam(i, "testValue" as keyof IntegrationParameter, e.target.value)}
+                        className="col-span-3 text-xs"
+                      />
+                      <Input placeholder="What the AI should pass here" value={p.description} onChange={(e) => updateParam(i, "description", e.target.value)} className="col-span-3 text-xs" />
+                      <div className="col-span-1 flex items-center gap-1">
+                        <Switch checked={p.required} onCheckedChange={(v) => updateParam(i, "required", v)} title={p.required ? "Required" : "Optional"} />
+                        <Button variant="ghost" size="icon" onClick={() => removeParam(i)} className="h-7 w-7 shrink-0"><X className="h-3.5 w-3.5" /></Button>
+                      </div>
                     </div>
                   ))}
-                  <p className="text-xs text-muted-foreground">Toggle = required</p>
+                  <p className="text-xs text-muted-foreground">Switch = required &nbsp;·&nbsp; Test value is sent when you click <strong>Test</strong></p>
                 </div>
               )}
             </div>

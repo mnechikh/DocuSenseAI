@@ -11,6 +11,10 @@ import {
   Sparkles,
   ChevronRight,
   X,
+  Zap,
+  Globe,
+  CheckCircle2,
+  Loader2,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -23,10 +27,27 @@ const DEMO_DOCS = [
 ];
 
 // ─────────────────────────────────────────────
+//  Connected APIs (sidebar)
+// ─────────────────────────────────────────────
+const CONNECTED_APIS = [
+  { name: "Procurement API", status: "live", color: "#34D399" },
+  { name: "HR Management System", status: "live", color: "#34D399" },
+  { name: "Contract Database", status: "live", color: "#34D399" },
+];
+
+// ─────────────────────────────────────────────
 //  Pre-scripted Q&A
 // ─────────────────────────────────────────────
 type DemoCitation = { docName: string; section: string };
-type DemoAnswer = { text: string; citations: DemoCitation[] };
+type IntegrationRow = Record<string, string>;
+type IntegrationResult = {
+  actionName: string;
+  endpoint: string;
+  tableHeaders: string[];
+  rows: IntegrationRow[];
+  summary: string;
+};
+type DemoAnswer = { text: string; citations: DemoCitation[]; integration?: IntegrationResult };
 
 const QA_PAIRS: { keywords: string[]; answer: DemoAnswer }[] = [
   {
@@ -137,15 +158,81 @@ const QA_PAIRS: { keywords: string[]; answer: DemoAnswer }[] = [
   },
 ];
 
+// ─────────────────────────────────────────────
+//  Integration QA Pairs
+// ─────────────────────────────────────────────
+const INTEGRATION_PAIRS: { keywords: string[]; answer: DemoAnswer }[] = [
+  {
+    keywords: ["bids", "procurement", "rfp", "rfq", "tenders", "open bids", "list bids", "show bids", "active bids"],
+    answer: {
+      text: "Fetching active bids from the Procurement API…",
+      citations: [],
+      integration: {
+        actionName: "List Active Bids",
+        endpoint: "GET /api/bids?status=open&quarter=Q2-2026",
+        tableHeaders: ["Title", "Agency", "Value", "Stage", "Deadline"],
+        rows: [
+          { Title: "VA Data Center RFI", Agency: "Veterans Affairs", Value: "$2.4M", Stage: "Drafting", Deadline: "Jun 3" },
+          { Title: "Cybersecurity Audit RFP", Agency: "Dept of Defense", Value: "$890K", Stage: "Submitted", Deadline: "May 28" },
+          { Title: "IT Services Contract", Agency: "GSA", Value: "$5.1M", Stage: "Drafting", Deadline: "Jun 15" },
+          { Title: "Cloud Migration RFP", Agency: "HHS", Value: "$3.2M", Stage: "Under Review", Deadline: "Jun 8" },
+          { Title: "Network Upgrade Bid", Agency: "Dept of Energy", Value: "$1.7M", Stage: "Submitted", Deadline: "Jun 20" },
+        ],
+        summary: "Found **47 active bids** this quarter — **31 in Drafting**, 12 Submitted, 4 Under Review. Combined pipeline value: **$13.3M**. Earliest deadline: May 28 (Cybersecurity Audit RFP).",
+      },
+    },
+  },
+  {
+    keywords: ["open positions", "job openings", "vacancies", "headcount", "hiring", "jobs", "new hires", "open roles", "open reqs"],
+    answer: {
+      text: "Querying the HR Management System for open positions…",
+      citations: [],
+      integration: {
+        actionName: "List Open Positions",
+        endpoint: "GET /hr/positions?status=open",
+        tableHeaders: ["Title", "Department", "Location", "Level", "Posted"],
+        rows: [
+          { Title: "Senior Backend Engineer", Department: "Engineering", Location: "Remote", Level: "L5", Posted: "May 10" },
+          { Title: "Product Designer", Department: "Product", Location: "NYC", Level: "L4", Posted: "May 14" },
+          { Title: "Enterprise AE", Department: "Sales", Location: "Austin", Level: "L6", Posted: "Apr 30" },
+          { Title: "Data Analyst", Department: "Analytics", Location: "Remote", Level: "L3", Posted: "May 19" },
+          { Title: "DevOps Engineer", Department: "Infrastructure", Location: "SF", Level: "L5", Posted: "May 21" },
+        ],
+        summary: "There are **12 open positions** across 6 departments. **Engineering** has the most openings (4), followed by Sales (3). 8 of the 12 are remote-eligible.",
+      },
+    },
+  },
+  {
+    keywords: ["contracts", "active contracts", "list contracts", "show contracts", "vendors", "current vendors", "supplier contracts"],
+    answer: {
+      text: "Pulling active contracts from the Contract Database…",
+      citations: [],
+      integration: {
+        actionName: "List Active Contracts",
+        endpoint: "GET /contracts?status=active",
+        tableHeaders: ["Vendor", "Type", "Value", "Owner", "Expires"],
+        rows: [
+          { Vendor: "Acme Cloud Services", Type: "SaaS", Value: "$240K/yr", Owner: "IT", Expires: "Dec 2026" },
+          { Vendor: "DataBridge Corp", Type: "Integration", Value: "$85K/yr", Owner: "Engineering", Expires: "Sep 2026" },
+          { Vendor: "SecureVault Inc", Type: "Security", Value: "$120K/yr", Owner: "InfoSec", Expires: "Mar 2027" },
+          { Vendor: "TalentFlow HR", Type: "HR Platform", Value: "$45K/yr", Owner: "People Ops", Expires: "Jan 2027" },
+          { Vendor: "AnalyticsPro", Type: "BI Tool", Value: "$36K/yr", Owner: "Analytics", Expires: "Nov 2026" },
+        ],
+        summary: "Found **23 active contracts** totalling approx **$1.8M/year**. **5 contracts expire within 6 months** — earliest: DataBridge Corp in Sep 2026. Recommend starting renewal conversations.",
+      },
+    },
+  },
+];
+
 const FALLBACK: DemoAnswer = {
-  text: `I can only answer questions about the three sample documents loaded in this demo:\n\n• **Employee_Handbook_2026.pdf** — PTO, onboarding, remote work, code of conduct\n• **Mutual_NDA_Template.docx** — confidentiality terms, exclusions, breach remedies\n• **IT_Security_Policy.pdf** — passwords, MFA, access control, incident response\n\nTry one of the suggested questions above, or ask something specific about one of these documents.`,
+  text: `I can answer questions about documents or trigger live API queries.\n\n**Documents loaded:**\n• **Employee_Handbook_2026.pdf** — PTO, onboarding, remote work, code of conduct\n• **Mutual_NDA_Template.docx** — confidentiality terms, exclusions, breach remedies\n• **IT_Security_Policy.pdf** — passwords, MFA, access control, incident response\n\n**Connected APIs — try asking:**\n• "List all open procurement bids"\n• "Show open positions in the HR system"\n• "What active contracts do we have?"`,
   citations: [],
 };
 
 function matchQuery(input: string): DemoAnswer {
   const lower = input.toLowerCase();
   let best: { answer: DemoAnswer; score: number } | null = null;
-  for (const qa of QA_PAIRS) {
+  for (const qa of [...QA_PAIRS, ...INTEGRATION_PAIRS]) {
     const score = qa.keywords.filter((k) => lower.includes(k)).length;
     if (score > 0 && (!best || score > best.score)) {
       best = { answer: qa.answer, score };
@@ -160,9 +247,10 @@ function matchQuery(input: string): DemoAnswer {
 const SUGGESTED = [
   "What's our PTO policy?",
   "Walk me through the onboarding checklist",
-  "What are the NDA exclusions?",
+  "List all open procurement bids",
+  "Show open positions in the HR system",
+  "What active contracts do we have?",
   "Explain the MFA requirements",
-  "How do we respond to a security incident?",
 ];
 
 // ─────────────────────────────────────────────
@@ -174,6 +262,8 @@ type Message = {
   fullText?: string;
   citations?: DemoCitation[];
   streaming?: boolean;
+  integration?: IntegrationResult;
+  showIntegration?: boolean;
 };
 
 const G = "linear-gradient(135deg, #7C8CFF 0%, #9B8CFF 50%, #C084FC 100%)";
@@ -210,6 +300,30 @@ export default function DemoPage() {
 
     const userMsg: Message = { role: "user", text: query };
     const answer = matchQuery(query);
+
+    if (answer.integration) {
+      // Two-phase: show "Fetching…" first, then reveal result + summary
+      const fetchingMsg: Message = {
+        role: "assistant",
+        text: answer.text,
+        fullText: answer.text,
+        citations: [],
+        streaming: false,
+        integration: answer.integration,
+        showIntegration: false,
+      };
+      setMessages((prev) => [...prev, userMsg, fetchingMsg]);
+      setStreaming(true);
+      setTimeout(() => {
+        setMessages((prev) =>
+          prev.map((m, i) =>
+            i === prev.length - 1 ? { ...m, showIntegration: true } : m
+          )
+        );
+        setStreaming(false);
+      }, 1200);
+      return;
+    }
 
     const assistantMsg: Message = {
       role: "assistant",
@@ -250,6 +364,62 @@ export default function DemoPage() {
         </span>
       );
     });
+  }
+
+  function renderIntegration(msg: Message) {
+    const intg = msg.integration!;
+    return (
+      <div className="flex gap-2 items-start">
+        <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5" style={{ background: "rgba(124,140,255,0.2)" }}>
+          <Sparkles className="w-3.5 h-3.5 text-[#9B8CFF]" />
+        </div>
+        <div className="flex flex-col gap-2 flex-1 min-w-0">
+          {/* "Fetching…" bubble */}
+          <div className="px-3.5 py-2.5 rounded-2xl rounded-tl-none max-w-[85%] text-xs text-white/70" style={{ background: "rgba(31,41,55,0.7)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            {!msg.showIntegration
+              ? <span className="flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin text-[#9B8CFF]" />{msg.text}</span>
+              : renderText(msg.text)
+            }
+          </div>
+          {/* Integration result card */}
+          {msg.showIntegration && (
+            <div className="rounded-xl p-3 max-w-full" style={{ background: "rgba(124,140,255,0.07)", border: "1px solid rgba(124,140,255,0.2)" }}>
+              <div className="flex items-center gap-2 mb-1">
+                <Zap className="w-3.5 h-3.5 text-[#9B8CFF] flex-shrink-0" />
+                <span className="text-xs font-semibold text-[#9B8CFF]">{intg.actionName}</span>
+                <span className="ml-auto flex items-center gap-1 text-[10px] text-emerald-400"><CheckCircle2 className="w-3 h-3" />200 OK</span>
+              </div>
+              <div className="text-[10px] text-white/30 font-mono mb-3 truncate">{intg.endpoint}</div>
+              {/* Table */}
+              <div className="rounded-lg overflow-auto max-h-56 border border-white/8" style={{ WebkitOverflowScrolling: "touch" }}>
+                <table className="min-w-full text-[10px]">
+                  <thead className="sticky top-0 z-10" style={{ background: "rgba(124,140,255,0.15)" }}>
+                    <tr>
+                      {intg.tableHeaders.map((h) => (
+                        <th key={h} className="text-left px-2.5 py-1.5 text-[#9B8CFF] font-semibold uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {intg.rows.map((row, ri) => (
+                      <tr key={ri} style={{ background: ri % 2 === 0 ? "rgba(0,0,0,0.2)" : "rgba(31,41,55,0.3)" }}>
+                        {intg.tableHeaders.map((h) => (
+                          <td key={h} className="px-2.5 py-1.5 whitespace-nowrap">
+                            <div className="max-w-[140px] truncate text-white/70">{row[h] ?? "—"}</div>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* AI summary */}
+              <div className="mt-3 text-xs text-white/70 leading-relaxed">{renderText(intg.summary)}</div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -294,7 +464,7 @@ export default function DemoPage() {
       <div className="relative z-10 flex flex-1 overflow-hidden">
 
         {/* SIDEBAR */}
-        <aside className="hidden md:flex flex-col w-64 shrink-0 border-r border-white/5 bg-[#0D1220]/60 backdrop-blur-sm">
+        <aside className="hidden md:flex flex-col w-64 shrink-0 border-r border-white/5 bg-[#0D1220]/60 backdrop-blur-sm overflow-y-auto">
           <div className="px-5 pt-6 pb-4 border-b border-white/5">
             <p className="text-[10px] uppercase tracking-widest text-[#6B7280] font-semibold mb-3">Sample Documents</p>
             <div className="space-y-2">
@@ -305,6 +475,25 @@ export default function DemoPage() {
                     <p className="text-xs font-medium text-[#E5E7EB] leading-tight truncate">{doc.name}</p>
                     <p className="text-[10px] text-[#6B7280] mt-0.5">{doc.pages} pages · {doc.type}</p>
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Connected APIs */}
+          <div className="px-5 pt-5 pb-4 border-b border-white/5">
+            <p className="text-[10px] uppercase tracking-widest text-[#6B7280] font-semibold mb-3">Connected APIs</p>
+            <div className="space-y-2">
+              {CONNECTED_APIS.map((api) => (
+                <div key={api.name} className="flex items-center gap-2.5 p-2.5 rounded-xl" style={{ background: "rgba(31,41,55,0.5)" }}>
+                  <Globe className="w-3.5 h-3.5 shrink-0" style={{ color: "#9B8CFF" }} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-[#E5E7EB] leading-tight truncate">{api.name}</p>
+                  </div>
+                  <span className="flex items-center gap-1 text-[10px] font-medium" style={{ color: api.color }}>
+                    <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: api.color }} />
+                    live
+                  </span>
                 </div>
               ))}
             </div>
@@ -329,8 +518,8 @@ export default function DemoPage() {
 
           <div className="mt-auto p-5 border-t border-white/5">
             <div className="p-4 rounded-2xl" style={{ background: "linear-gradient(135deg, rgba(124,140,255,0.12), rgba(192,132,252,0.08))", border: "1px solid rgba(124,140,255,0.15)" }}>
-              <p className="text-xs font-semibold text-[#F9FAFB] mb-1">Use your own docs</p>
-              <p className="text-[11px] text-[#9CA3AF] leading-relaxed mb-3">Upload your documents and get AI answers from your actual content.</p>
+              <p className="text-xs font-semibold text-[#F9FAFB] mb-1">Use your own docs + APIs</p>
+              <p className="text-[11px] text-[#9CA3AF] leading-relaxed mb-3">Connect your documents and REST APIs for an AI workspace that knows your business.</p>
               <Link href="/login">
                 <Button size="sm" className="w-full h-7 text-[11px] border-0 rounded-lg" style={{ background: G, color: "#fff" }}>
                   Start Free
@@ -343,6 +532,34 @@ export default function DemoPage() {
         {/* CHAT PANE */}
         <div className="flex flex-col flex-1 overflow-hidden">
 
+          {/* Connected APIs strip */}
+          <div className="shrink-0 px-4 pt-3 pb-2 border-b border-white/5" style={{ background: "rgba(13,18,32,0.6)" }}>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+              <span className="text-[10px] uppercase tracking-widest text-[#4B5563] font-semibold shrink-0 flex items-center gap-1">
+                <Globe className="w-3 h-3" /> Connected APIs
+              </span>
+              <span className="text-white/10 shrink-0">·</span>
+              {[
+                { label: "Procurement API", query: "List all open procurement bids" },
+                { label: "HR Management", query: "Show open positions in the HR system" },
+                { label: "Contract Database", query: "What active contracts do we have?" },
+              ].map((api) => (
+                <button
+                  key={api.label}
+                  onClick={() => handleSend(api.query)}
+                  disabled={streaming}
+                  className="flex items-center gap-1.5 shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all disabled:opacity-40 hover:brightness-125"
+                  style={{ background: "rgba(124,140,255,0.10)", border: "1px solid rgba(124,140,255,0.2)", color: "#9B8CFF" }}
+                  title={`Try asking: "${api.query}"`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                  {api.label}
+                  <Zap className="w-2.5 h-2.5 opacity-60" />
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-6 space-y-5">
 
@@ -353,23 +570,40 @@ export default function DemoPage() {
                   <MessageSquare className="w-6 h-6" style={{ color: "#9B8CFF" }} />
                 </div>
                 <div>
-                  <p className="text-base font-semibold text-[#F9FAFB] mb-1">Ask anything about the sample documents</p>
-                  <p className="text-sm text-[#6B7280]">Try one of the suggested questions, or type your own below</p>
+                  <p className="text-base font-semibold text-[#F9FAFB] mb-1">Ask about documents or trigger a live integration</p>
+                  <p className="text-sm text-[#6B7280]">Try a doc question or ask &ldquo;list all open bids&rdquo; to see an API integration in action</p>
                 </div>
                 {/* Mobile suggested chips */}
-                <div className="flex flex-wrap justify-center gap-2 mt-2 md:hidden">
-                  {SUGGESTED.slice(0, 3).map((q) => (
-                    <button key={q} onClick={() => handleSend(q)} disabled={streaming} className="text-xs px-3 py-1.5 rounded-full border border-white/10 hover:border-white/20 hover:bg-white/5 text-[#9CA3AF] hover:text-[#F9FAFB] transition-colors">
-                      {q}
-                    </button>
-                  ))}
+                <div className="flex flex-col items-center gap-3 mt-2 md:hidden w-full px-2">
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {["What's our PTO policy?", "Explain the MFA requirements"].map((q) => (
+                      <button key={q} onClick={() => handleSend(q)} disabled={streaming} className="text-xs px-3 py-1.5 rounded-full border border-white/10 hover:border-white/20 hover:bg-white/5 text-[#9CA3AF] hover:text-[#F9FAFB] transition-colors">
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {[
+                      { label: "List open bids", query: "List all open procurement bids" },
+                      { label: "Show open positions", query: "Show open positions in the HR system" },
+                      { label: "Active contracts", query: "What active contracts do we have?" },
+                    ].map((item) => (
+                      <button key={item.label} onClick={() => handleSend(item.query)} disabled={streaming}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full transition-colors disabled:opacity-40"
+                        style={{ background: "rgba(124,140,255,0.10)", border: "1px solid rgba(124,140,255,0.2)", color: "#9B8CFF" }}>
+                        <Zap className="w-3 h-3" />{item.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
 
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                {msg.role === "assistant" && (
+                {msg.role === "assistant" && msg.integration ? (
+                  <div className="max-w-2xl w-full">{renderIntegration(msg)}</div>
+                ) : msg.role === "assistant" && (
                   <div className="flex items-start gap-3 max-w-2xl w-full">
                     <div className="mt-1 shrink-0"><Logo size={28} /></div>
                     <div className="flex flex-col gap-2 min-w-0">
@@ -412,7 +646,7 @@ export default function DemoPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 disabled={streaming}
-                placeholder="Ask a question about the sample documents…"
+                placeholder="Ask about documents or trigger an API integration…"
                 className="flex-1 px-4 py-3 rounded-xl text-sm text-[#F9FAFB] placeholder-[#6B7280] outline-none disabled:opacity-50"
                 style={{ background: "rgba(31,41,55,0.6)", border: "1px solid rgba(255,255,255,0.08)" }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
@@ -426,7 +660,7 @@ export default function DemoPage() {
                 <Send className="w-4 h-4 text-white" />
               </Button>
             </form>
-            <p className="text-center text-[10px] text-[#4B5563] mt-2">Demo mode · Answers are pre-scripted from sample documents</p>
+            <p className="text-center text-[10px] text-[#4B5563] mt-2">Demo mode · Document answers and integration results are pre-scripted</p>
           </div>
         </div>
       </div>

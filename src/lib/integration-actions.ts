@@ -104,7 +104,7 @@ export async function createIntegration(data: {
     enabled: true,
     endpoint: data.endpoint.trim(),
     method: data.method,
-    headers: data.headers.filter((h) => h.key.trim() && isValidHeaderName(h.key.trim())),
+    headers: data.headers.filter((h) => h.key.trim() && isValidHeaderName(h.key.trim())).map(h => ({ key: h.key.trim(), value: h.value.trim() })),
     bodyTemplate: data.bodyTemplate,
     parameters: data.parameters,
     createdAt: now,
@@ -178,7 +178,12 @@ export async function updateIntegration(
   }
   if (data.endpoint) validateEndpoint(data.endpoint);
 
-  await ref.update({ ...data, updatedAt: Date.now() });
+  // Normalize header key/value whitespace before writing
+  const normalized = data.headers
+    ? { ...data, headers: data.headers.map(h => ({ key: h.key.trim(), value: h.value.trim() })) }
+    : data;
+
+  await ref.update({ ...normalized, updatedAt: Date.now() });
 }
 
 export async function deleteIntegration(id: string): Promise<void> {
@@ -232,7 +237,7 @@ export async function executeIntegration(
   };
   for (const { key, value } of integration.headers) {
     const k = key.trim();
-    if (k && isValidHeaderName(k)) reqHeaders[k] = value;
+    if (k && isValidHeaderName(k)) reqHeaders[k] = value.trim();
   }
 
   // Build body

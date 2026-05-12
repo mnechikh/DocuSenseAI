@@ -15,6 +15,7 @@ import {
   Globe,
   CheckCircle2,
   Loader2,
+  Menu,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -47,7 +48,16 @@ type IntegrationResult = {
   rows: IntegrationRow[];
   summary: string;
 };
-type DemoAnswer = { text: string; citations: DemoCitation[]; integration?: IntegrationResult };
+type WriteParam = { key: string; value: string };
+type WriteAction = {
+  actionName: string;
+  method: "POST" | "PUT" | "PATCH";
+  endpoint: string;
+  proposedParams: WriteParam[];
+  successRecord: Record<string, string>;
+  summary: string;
+};
+type DemoAnswer = { text: string; citations: DemoCitation[]; integration?: IntegrationResult; writeAction?: WriteAction };
 
 const QA_PAIRS: { keywords: string[]; answer: DemoAnswer }[] = [
   {
@@ -224,15 +234,108 @@ const INTEGRATION_PAIRS: { keywords: string[]; answer: DemoAnswer }[] = [
   },
 ];
 
+// ─────────────────────────────────────────────
+//  Write / Action QA Pairs
+// ─────────────────────────────────────────────
+const WRITE_PAIRS: { keywords: string[]; answer: DemoAnswer }[] = [
+  {
+    keywords: ["submit a bid", "create a bid", "add a bid", "new bid", "file a bid", "draft a bid", "submit bid", "create bid"],
+    answer: {
+      text: "I'll submit a new bid to the Procurement API with these details:",
+      citations: [],
+      writeAction: {
+        actionName: "Submit New Bid",
+        method: "POST",
+        endpoint: "POST /api/bids",
+        proposedParams: [
+          { key: "title", value: "AI Infrastructure Modernisation RFP" },
+          { key: "agency", value: "Dept of Homeland Security" },
+          { key: "value", value: "$1,200,000" },
+          { key: "stage", value: "Drafting" },
+          { key: "deadline", value: "2026-07-01" },
+          { key: "owner", value: "Current User" },
+        ],
+        successRecord: {
+          id: "BID-2847",
+          title: "AI Infrastructure Modernisation RFP",
+          agency: "Dept of Homeland Security",
+          value: "$1,200,000",
+          stage: "Drafting",
+          created_at: "2026-05-12T14:32:07Z",
+        },
+        summary: "Bid **BID-2847** created successfully. It's now visible in the Procurement dashboard under Drafting. Deadline set for Jul 1, 2026.",
+      },
+    },
+  },
+  {
+    keywords: ["add a job", "post a job", "create a position", "add a position", "new role", "open a role", "open a position", "new opening", "add an opening", "hire for", "create a role"],
+    answer: {
+      text: "I'll create a new job opening in the HR Management System:",
+      citations: [],
+      writeAction: {
+        actionName: "Create Job Opening",
+        method: "POST",
+        endpoint: "POST /hr/positions",
+        proposedParams: [
+          { key: "title", value: "Senior AI Engineer" },
+          { key: "department", value: "Engineering" },
+          { key: "location", value: "Remote" },
+          { key: "level", value: "L5" },
+          { key: "status", value: "Open" },
+          { key: "posted_by", value: "Current User" },
+        ],
+        successRecord: {
+          id: "POS-0413",
+          title: "Senior AI Engineer",
+          department: "Engineering",
+          location: "Remote",
+          level: "L5",
+          created_at: "2026-05-12T14:32:09Z",
+        },
+        summary: "Position **POS-0413** is now live in the HR system. It will appear on your careers page and internal job board within minutes.",
+      },
+    },
+  },
+  {
+    keywords: ["log a contract", "add a contract", "create a contract", "new contract", "register a vendor", "add a vendor", "new vendor"],
+    answer: {
+      text: "I'll log a new vendor contract in the Contract Database:",
+      citations: [],
+      writeAction: {
+        actionName: "Log Vendor Contract",
+        method: "POST",
+        endpoint: "POST /contracts",
+        proposedParams: [
+          { key: "vendor", value: "NexGen AI Solutions" },
+          { key: "type", value: "SaaS" },
+          { key: "value", value: "$95,000/yr" },
+          { key: "owner", value: "Engineering" },
+          { key: "expiry", value: "2027-05-12" },
+          { key: "status", value: "Active" },
+        ],
+        successRecord: {
+          id: "CON-1194",
+          vendor: "NexGen AI Solutions",
+          type: "SaaS",
+          value: "$95,000/yr",
+          owner: "Engineering",
+          created_at: "2026-05-12T14:32:11Z",
+        },
+        summary: "Contract **CON-1194** logged successfully. NexGen AI Solutions is now tracked in the Contract Database with a May 2027 renewal date.",
+      },
+    },
+  },
+];
+
 const FALLBACK: DemoAnswer = {
-  text: `I can answer questions about documents or trigger live API queries.\n\n**Documents loaded:**\n• **Employee_Handbook_2026.pdf** — PTO, onboarding, remote work, code of conduct\n• **Mutual_NDA_Template.docx** — confidentiality terms, exclusions, breach remedies\n• **IT_Security_Policy.pdf** — passwords, MFA, access control, incident response\n\n**Connected APIs — try asking:**\n• "List all open procurement bids"\n• "Show open positions in the HR system"\n• "What active contracts do we have?"`,
+  text: `I can answer questions about documents, fetch live data, or take actions in connected systems.\n\n**Documents loaded:**\n• **Employee_Handbook_2026.pdf** — PTO, onboarding, remote work, code of conduct\n• **Mutual_NDA_Template.docx** — confidentiality terms, exclusions, breach remedies\n• **IT_Security_Policy.pdf** — passwords, MFA, access control, incident response\n\n**Connected APIs — try asking:**\n• "List all open procurement bids" or "Submit a new bid"\n• "Show open positions" or "Add a job opening"\n• "What active contracts do we have?" or "Log a new vendor contract"`,
   citations: [],
 };
 
 function matchQuery(input: string): DemoAnswer {
   const lower = input.toLowerCase();
   let best: { answer: DemoAnswer; score: number } | null = null;
-  for (const qa of [...QA_PAIRS, ...INTEGRATION_PAIRS]) {
+  for (const qa of [...WRITE_PAIRS, ...QA_PAIRS, ...INTEGRATION_PAIRS]) {
     const score = qa.keywords.filter((k) => lower.includes(k)).length;
     if (score > 0 && (!best || score > best.score)) {
       best = { answer: qa.answer, score };
@@ -248,7 +351,9 @@ const SUGGESTED = [
   "What's our PTO policy?",
   "Walk me through the onboarding checklist",
   "List all open procurement bids",
+  "Submit a new bid",
   "Show open positions in the HR system",
+  "Add a job opening",
   "What active contracts do we have?",
   "Explain the MFA requirements",
 ];
@@ -264,6 +369,8 @@ type Message = {
   streaming?: boolean;
   integration?: IntegrationResult;
   showIntegration?: boolean;
+  writeAction?: WriteAction;
+  writePhase?: 0 | 1 | 2; // 0=proposing, 1=executing, 2=done
 };
 
 const G = "linear-gradient(135deg, #7C8CFF 0%, #9B8CFF 50%, #C084FC 100%)";
@@ -283,6 +390,7 @@ export default function DemoPage() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const streamInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -300,6 +408,31 @@ export default function DemoPage() {
 
     const userMsg: Message = { role: "user", text: query };
     const answer = matchQuery(query);
+
+    if (answer.writeAction) {
+      // 3-phase: propose (0) → executing (1) → done (2)
+      const writeMsg: Message = {
+        role: "assistant",
+        text: answer.text,
+        citations: [],
+        writeAction: answer.writeAction,
+        writePhase: 0,
+      };
+      setMessages((prev) => [...prev, userMsg, writeMsg]);
+      setStreaming(true);
+      setTimeout(() => {
+        setMessages((prev) =>
+          prev.map((m, i) => i === prev.length - 1 ? { ...m, writePhase: 1 } : m)
+        );
+        setTimeout(() => {
+          setMessages((prev) =>
+            prev.map((m, i) => i === prev.length - 1 ? { ...m, writePhase: 2 } : m)
+          );
+          setStreaming(false);
+        }, 1000);
+      }, 1800);
+      return;
+    }
 
     if (answer.integration) {
       // Two-phase: show "Fetching…" first, then reveal result + summary
@@ -364,6 +497,93 @@ export default function DemoPage() {
         </span>
       );
     });
+  }
+
+  function renderWriteAction(msg: Message) {
+    const wa = msg.writeAction!;
+    const phase = msg.writePhase ?? 0;
+    const methodColor = "#F59E0B";
+    return (
+      <div className="flex gap-2 items-start">
+        <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5" style={{ background: "rgba(245,158,11,0.15)" }}>
+          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+        </div>
+        <div className="flex flex-col gap-2 flex-1 min-w-0">
+          {/* Intent bubble */}
+          <div className="px-3.5 py-2.5 rounded-2xl rounded-tl-none max-w-[85%] text-xs text-white/70" style={{ background: "rgba(31,41,55,0.7)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            {renderText(msg.text)}
+          </div>
+
+          {/* Proposed action card */}
+          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(245,158,11,0.25)", background: "rgba(245,158,11,0.05)" }}>
+            {/* header */}
+            <div className="flex items-center gap-2 px-3 py-2" style={{ background: "rgba(245,158,11,0.10)", borderBottom: "1px solid rgba(245,158,11,0.15)" }}>
+              <Zap className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+              <span className="text-xs font-semibold text-amber-300">{wa.actionName}</span>
+              <span className="ml-auto font-mono text-[9px] px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(245,158,11,0.2)", color: methodColor }}>{wa.method}</span>
+              <span className="font-mono text-[9px] text-white/30 truncate max-w-[140px]">{wa.endpoint.replace(/^(POST|PUT|PATCH) /, "")}</span>
+            </div>
+
+            {/* Params */}
+            <div className="px-3 py-2.5 grid grid-cols-2 gap-x-4 gap-y-1.5">
+              {wa.proposedParams.map((p) => (
+                <div key={p.key} className="flex flex-col min-w-0">
+                  <span className="text-[9px] uppercase tracking-wide text-white/30 font-semibold">{p.key}</span>
+                  <span className="text-[10px] text-white/70 truncate">{p.value}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Status bar */}
+            <div className="px-3 py-2 border-t border-white/5 flex items-center gap-2">
+              {phase === 0 && (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin text-amber-400 flex-shrink-0" />
+                  <span className="text-[10px] text-amber-300/70">Sending request…</span>
+                </>
+              )}
+              {phase === 1 && (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin text-amber-400 flex-shrink-0" />
+                  <span className="text-[10px] text-amber-300/70">Awaiting confirmation…</span>
+                </>
+              )}
+              {phase === 2 && (
+                <>
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                  <span className="text-[10px] text-emerald-400 font-semibold">201 Created</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Success record */}
+          {phase === 2 && (
+            <>
+              <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(52,211,153,0.2)", background: "rgba(52,211,153,0.05)" }}>
+                <div className="flex items-center gap-2 px-3 py-2" style={{ background: "rgba(52,211,153,0.08)", borderBottom: "1px solid rgba(52,211,153,0.12)" }}>
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                  <span className="text-[10px] font-semibold text-emerald-300">Record Created</span>
+                  <span className="ml-auto font-mono text-[9px] text-emerald-400/60">{wa.successRecord.id}</span>
+                </div>
+                <div className="px-3 py-2.5 grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  {Object.entries(wa.successRecord).map(([k, v]) => (
+                    <div key={k} className="flex flex-col min-w-0">
+                      <span className="text-[9px] uppercase tracking-wide text-white/30 font-semibold">{k}</span>
+                      <span className="text-[10px] text-white/70 truncate">{v}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* AI summary */}
+              <div className="px-3.5 py-2.5 rounded-2xl rounded-tl-none text-xs text-white/70" style={{ background: "rgba(31,41,55,0.7)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                {renderText(wa.summary)}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
   }
 
   function renderIntegration(msg: Message) {
@@ -453,12 +673,122 @@ export default function DemoPage() {
           <span className="text-[16px] font-bold tracking-tight">Lumxia</span>
           <span className="text-[10px] text-amber-400/70 font-semibold uppercase tracking-widest ml-1 px-1.5 py-0.5 rounded" style={{ background: "rgba(251,191,36,0.10)", border: "1px solid rgba(251,191,36,0.2)" }}>Demo</span>
         </Link>
-        <Link href="/login">
-          <Button size="sm" className="text-white text-xs h-8 px-4 border-0 rounded-lg gap-1.5" style={{ background: G, boxShadow: "0 2px 12px rgba(124,140,255,0.3)" }}>
-            Start Free <ArrowRight className="w-3 h-3" />
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          {/* Mobile sidebar toggle */}
+          <button
+            className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-[#9CA3AF] hover:text-[#F9FAFB] hover:bg-white/5 transition-colors"
+            onClick={() => setMobileSidebarOpen(true)}
+          >
+            <Menu className="w-4 h-4" />
+            <span className="text-[11px]">Docs & APIs</span>
+          </button>
+          <Link href="/login">
+            <Button size="sm" className="text-white text-xs h-8 px-4 border-0 rounded-lg gap-1.5" style={{ background: G, boxShadow: "0 2px 12px rgba(124,140,255,0.3)" }}>
+              Start Free <ArrowRight className="w-3 h-3" />
+            </Button>
+          </Link>
+        </div>
       </nav>
+
+      {/* MOBILE SIDEBAR BOTTOM SHEET */}
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex flex-col justify-end">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileSidebarOpen(false)} />
+          {/* Sheet */}
+          <div className="relative rounded-t-2xl overflow-y-auto max-h-[80vh]" style={{ background: "#0D1220", border: "1px solid rgba(255,255,255,0.08)", borderBottom: "none" }}>
+            {/* Handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 rounded-full bg-white/20" />
+            </div>
+            {/* Close */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/5">
+              <span className="text-sm font-semibold text-[#F9FAFB]">Demo Context</span>
+              <button onClick={() => setMobileSidebarOpen(false)} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
+                <X className="w-4 h-4 text-[#9CA3AF]" />
+              </button>
+            </div>
+
+            {/* Sample Documents */}
+            <div className="px-5 pt-5 pb-4 border-b border-white/5">
+              <p className="text-[10px] uppercase tracking-widest text-[#6B7280] font-semibold mb-3">Sample Documents</p>
+              <div className="space-y-2">
+                {DEMO_DOCS.map((doc) => (
+                  <div key={doc.name} className="flex items-start gap-2.5 p-2.5 rounded-xl" style={{ background: "rgba(31,41,55,0.5)" }}>
+                    <FileText className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "#9B8CFF" }} />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-[#E5E7EB] leading-tight truncate">{doc.name}</p>
+                      <p className="text-[10px] text-[#6B7280] mt-0.5">{doc.pages} pages · {doc.type}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Connected APIs */}
+            <div className="px-5 pt-5 pb-4 border-b border-white/5">
+              <p className="text-[10px] uppercase tracking-widest text-[#6B7280] font-semibold mb-3">Connected APIs</p>
+              <div className="space-y-2">
+                {CONNECTED_APIS.map((api) => (
+                  <div key={api.name} className="flex items-center gap-2.5 p-2.5 rounded-xl" style={{ background: "rgba(31,41,55,0.5)" }}>
+                    <Globe className="w-3.5 h-3.5 shrink-0" style={{ color: "#9B8CFF" }} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-[#E5E7EB] leading-tight truncate">{api.name}</p>
+                    </div>
+                    <span className="flex items-center gap-1 text-[10px] font-medium" style={{ color: api.color }}>
+                      <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: api.color }} />
+                      live
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Try asking */}
+            <div className="px-5 pt-5 pb-4 border-b border-white/5">
+              <p className="text-[10px] uppercase tracking-widest text-[#6B7280] font-semibold mb-3">Try asking</p>
+              <div className="space-y-1.5">
+                {SUGGESTED.map((q) => {
+                  const isWrite = WRITE_PAIRS.some((wp) => wp.answer.text === matchQuery(q).text && matchQuery(q).writeAction);
+                  const isInteg = INTEGRATION_PAIRS.some((ip) => ip.answer.text === matchQuery(q).text && matchQuery(q).integration);
+                  return (
+                    <button
+                      key={q}
+                      onClick={() => { handleSend(q); setMobileSidebarOpen(false); }}
+                      disabled={streaming}
+                      className="w-full text-left text-xs px-3 py-2 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-40"
+                      style={isWrite
+                        ? { color: "#F59E0B", background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)" }
+                        : isInteg
+                        ? { color: "#9B8CFF", background: "rgba(124,140,255,0.06)", border: "1px solid rgba(124,140,255,0.12)" }
+                        : { color: "#9CA3AF" }
+                      }
+                    >
+                      {isWrite ? <Zap className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0 text-[#7C8CFF]" />}
+                      {q}
+                      {isWrite && <span className="ml-auto text-[9px] font-mono opacity-50">POST</span>}
+                      {isInteg && !isWrite && <span className="ml-auto text-[9px] font-mono opacity-50">GET</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* CTA */}
+            <div className="p-5">
+              <div className="p-4 rounded-2xl" style={{ background: "linear-gradient(135deg, rgba(124,140,255,0.12), rgba(192,132,252,0.08))", border: "1px solid rgba(124,140,255,0.15)" }}>
+                <p className="text-xs font-semibold text-[#F9FAFB] mb-1">Use your own docs + APIs</p>
+                <p className="text-[11px] text-[#9CA3AF] leading-relaxed mb-3">Connect your documents and REST APIs for an AI workspace that knows your business.</p>
+                <Link href="/login" onClick={() => setMobileSidebarOpen(false)}>
+                  <Button size="sm" className="w-full h-7 text-[11px] border-0 rounded-lg" style={{ background: G, color: "#fff" }}>
+                    Start Free
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MAIN */}
       <div className="relative z-10 flex flex-1 overflow-hidden">
@@ -532,34 +862,6 @@ export default function DemoPage() {
         {/* CHAT PANE */}
         <div className="flex flex-col flex-1 overflow-hidden">
 
-          {/* Connected APIs strip */}
-          <div className="shrink-0 px-4 pt-3 pb-2 border-b border-white/5" style={{ background: "rgba(13,18,32,0.6)" }}>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
-              <span className="text-[10px] uppercase tracking-widest text-[#4B5563] font-semibold shrink-0 flex items-center gap-1">
-                <Globe className="w-3 h-3" /> Connected APIs
-              </span>
-              <span className="text-white/10 shrink-0">·</span>
-              {[
-                { label: "Procurement API", query: "List all open procurement bids" },
-                { label: "HR Management", query: "Show open positions in the HR system" },
-                { label: "Contract Database", query: "What active contracts do we have?" },
-              ].map((api) => (
-                <button
-                  key={api.label}
-                  onClick={() => handleSend(api.query)}
-                  disabled={streaming}
-                  className="flex items-center gap-1.5 shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all disabled:opacity-40 hover:brightness-125"
-                  style={{ background: "rgba(124,140,255,0.10)", border: "1px solid rgba(124,140,255,0.2)", color: "#9B8CFF" }}
-                  title={`Try asking: "${api.query}"`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                  {api.label}
-                  <Zap className="w-2.5 h-2.5 opacity-60" />
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-6 space-y-5">
 
@@ -571,37 +873,16 @@ export default function DemoPage() {
                 </div>
                 <div>
                   <p className="text-base font-semibold text-[#F9FAFB] mb-1">Ask about documents or trigger a live integration</p>
-                  <p className="text-sm text-[#6B7280]">Try a doc question or ask &ldquo;list all open bids&rdquo; to see an API integration in action</p>
-                </div>
-                {/* Mobile suggested chips */}
-                <div className="flex flex-col items-center gap-3 mt-2 md:hidden w-full px-2">
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {["What's our PTO policy?", "Explain the MFA requirements"].map((q) => (
-                      <button key={q} onClick={() => handleSend(q)} disabled={streaming} className="text-xs px-3 py-1.5 rounded-full border border-white/10 hover:border-white/20 hover:bg-white/5 text-[#9CA3AF] hover:text-[#F9FAFB] transition-colors">
-                        {q}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {[
-                      { label: "List open bids", query: "List all open procurement bids" },
-                      { label: "Show open positions", query: "Show open positions in the HR system" },
-                      { label: "Active contracts", query: "What active contracts do we have?" },
-                    ].map((item) => (
-                      <button key={item.label} onClick={() => handleSend(item.query)} disabled={streaming}
-                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full transition-colors disabled:opacity-40"
-                        style={{ background: "rgba(124,140,255,0.10)", border: "1px solid rgba(124,140,255,0.2)", color: "#9B8CFF" }}>
-                        <Zap className="w-3 h-3" />{item.label}
-                      </button>
-                    ))}
-                  </div>
+                  <p className="text-sm text-[#6B7280]">Use the chips below — or tap <strong className="text-white/60">Docs &amp; APIs</strong> in the menu to explore what&apos;s loaded</p>
                 </div>
               </div>
             )}
 
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                {msg.role === "assistant" && msg.integration ? (
+                {msg.role === "assistant" && msg.writeAction ? (
+                  <div className="max-w-2xl w-full">{renderWriteAction(msg)}</div>
+                ) : msg.role === "assistant" && msg.integration ? (
                   <div className="max-w-2xl w-full">{renderIntegration(msg)}</div>
                 ) : msg.role === "assistant" && (
                   <div className="flex items-start gap-3 max-w-2xl w-full">
@@ -637,30 +918,74 @@ export default function DemoPage() {
           </div>
 
           {/* Input bar */}
-          <div className="px-4 pb-5 pt-3 border-t border-white/5">
-            <form
-              onSubmit={(e) => { e.preventDefault(); handleSend(); }}
-              className="flex gap-3"
-            >
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                disabled={streaming}
-                placeholder="Ask about documents or trigger an API integration…"
-                className="flex-1 px-4 py-3 rounded-xl text-sm text-[#F9FAFB] placeholder-[#6B7280] outline-none disabled:opacity-50"
-                style={{ background: "rgba(31,41,55,0.6)", border: "1px solid rgba(255,255,255,0.08)" }}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              />
-              <Button
-                type="submit"
-                disabled={!input.trim() || streaming}
-                className="h-11 w-11 p-0 shrink-0 border-0 rounded-xl disabled:opacity-30"
-                style={{ background: G }}
+          <div className="shrink-0 border-t border-white/5" style={{ background: "rgba(13,18,32,0.8)" }}>
+            {/* Connected APIs chips — anchored above input */}
+            <div className="px-4 pt-3 pb-1">
+              <div className="flex items-center gap-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+                <span className="text-[10px] uppercase tracking-widest text-[#4B5563] font-semibold shrink-0 flex items-center gap-1">
+                  <Globe className="w-3 h-3" /> APIs
+                </span>
+                <span className="text-white/10 shrink-0">·</span>
+                {[
+                  { label: "List Bids", query: "List all open procurement bids", method: "GET" },
+                  { label: "Submit Bid", query: "Submit a new bid", method: "POST" },
+                  { label: "Open Positions", query: "Show open positions in the HR system", method: "GET" },
+                  { label: "Add Job", query: "Add a job opening", method: "POST" },
+                  { label: "Contracts", query: "What active contracts do we have?", method: "GET" },
+                  { label: "Log Contract", query: "Log a new vendor contract", method: "POST" },
+                  { label: "PTO Policy", query: "What's our PTO policy?", method: "DOC" },
+                  { label: "MFA Rules", query: "Explain the MFA requirements", method: "DOC" },
+                ].map((api) => (
+                  <button
+                    key={api.label}
+                    onClick={() => handleSend(api.query)}
+                    disabled={streaming}
+                    className="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all disabled:opacity-40 hover:brightness-125"
+                    style={api.method === "POST"
+                      ? { background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.25)", color: "#F59E0B" }
+                      : api.method === "DOC"
+                      ? { background: "rgba(107,114,128,0.12)", border: "1px solid rgba(107,114,128,0.2)", color: "#9CA3AF" }
+                      : { background: "rgba(124,140,255,0.10)", border: "1px solid rgba(124,140,255,0.2)", color: "#9B8CFF" }
+                    }
+                    title={api.query}
+                  >
+                    {api.method === "POST"
+                      ? <Zap className="w-2.5 h-2.5 opacity-80" />
+                      : api.method === "DOC"
+                      ? <FileText className="w-2.5 h-2.5 opacity-60" />
+                      : <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                    }
+                    {api.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-4 pb-5 pt-2">
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleSend(); }}
+                className="flex gap-3"
               >
-                <Send className="w-4 h-4 text-white" />
-              </Button>
-            </form>
-            <p className="text-center text-[10px] text-[#4B5563] mt-2">Demo mode · Document answers and integration results are pre-scripted</p>
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  disabled={streaming}
+                  placeholder="Ask about documents or trigger an API integration…"
+                  className="flex-1 px-4 py-3 rounded-xl text-sm text-[#F9FAFB] placeholder-[#6B7280] outline-none disabled:opacity-50"
+                  style={{ background: "rgba(31,41,55,0.6)", border: "1px solid rgba(255,255,255,0.08)" }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                />
+                <Button
+                  type="submit"
+                  disabled={!input.trim() || streaming}
+                  className="h-11 w-11 p-0 shrink-0 border-0 rounded-xl disabled:opacity-30"
+                  style={{ background: G }}
+                >
+                  <Send className="w-4 h-4 text-white" />
+                </Button>
+              </form>
+              <p className="text-center text-[10px] text-[#4B5563] mt-2">Demo mode · Document answers and integration results are pre-scripted</p>
+            </div>
           </div>
         </div>
       </div>

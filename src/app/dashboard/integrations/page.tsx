@@ -69,7 +69,7 @@ import {
   LayoutDashboard, ChevronDown, ChevronUp, X, Lock, CreditCard,
   Upload, Download, BookOpen, Play, HelpCircle,
   CheckCircle2, XCircle, Clock, Copy, Check, ChevronRight,
-  Sparkles, Filter,
+  Sparkles, Filter, Eye, EyeOff,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -659,6 +659,7 @@ export default function IntegrationsPage() {
   const [testResultsOpen, setTestResultsOpen] = useState(false);
   const [retestingId, setRetestingId] = useState<string | null>(null);
   const [headersModified, setHeadersModified] = useState(false);
+  const [revealedHeaders, setRevealedHeaders] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     getMyTenantQuota().then((q) => {
@@ -722,6 +723,7 @@ export default function IntegrationsPage() {
   const openEdit = (ig: IntegrationSummary) => {
     setEditTarget(ig);
     setHeadersModified(false);
+    setRevealedHeaders(new Set());
     setForm({ name: ig.name, description: ig.description, endpoint: ig.endpoint, method: ig.method, headers: [], bodyTemplate: ig.bodyTemplate, parameters: ig.parameters });
     setDialogOpen(true);
   };
@@ -808,8 +810,9 @@ export default function IntegrationsPage() {
   const dismissOnboarding = () => { localStorage.setItem(ONBOARDING_KEY, "1"); setOnboardingVisible(false); };
 
   const addHeader = () => { setHeadersModified(true); setForm((f) => ({ ...f, headers: [...f.headers, { key: "", value: "" }] })); };
-  const removeHeader = (i: number) => { setHeadersModified(true); setForm((f) => ({ ...f, headers: f.headers.filter((_, idx) => idx !== i) })); };
+  const removeHeader = (i: number) => { setHeadersModified(true); setRevealedHeaders((prev) => { const n = new Set(prev); n.delete(i); return n; }); setForm((f) => ({ ...f, headers: f.headers.filter((_, idx) => idx !== i) })); };
   const updateHeader = (i: number, field: "key" | "value", val: string) => { setHeadersModified(true); setForm((f) => { const h = [...f.headers]; h[i] = { ...h[i], [field]: val }; return { ...f, headers: h }; }); };
+  const toggleRevealHeader = (i: number) => setRevealedHeaders((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
   const addParam = () => setForm((f) => ({ ...f, parameters: [...f.parameters, { name: "", type: "string", description: "", required: true }] }));
   const removeParam = (i: number) => setForm((f) => ({ ...f, parameters: f.parameters.filter((_, idx) => idx !== i) }));
   const updateParam = (i: number, field: keyof IntegrationParameter, val: unknown) => setForm((f) => { const p = [...f.parameters]; p[i] = { ...p[i], [field]: val }; return { ...f, parameters: p }; });
@@ -1035,7 +1038,8 @@ export default function IntegrationsPage() {
             <DialogTitle>{editTarget ? "Edit Integration" : "New Integration"}</DialogTitle>
             <DialogDescription>Configure an HTTP endpoint the AI can call during chat.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          {/* form wrapper is required to give browsers a form context with autoComplete=off */}
+          <form autoComplete="off" onSubmit={(e) => e.preventDefault()} className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label>Name <span className="text-destructive">*</span></Label>
               <Input placeholder="Create Jira Ticket" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
@@ -1058,12 +1062,9 @@ export default function IntegrationsPage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              {/* Hidden honeypot inputs to block browser credential autofill */}
-              <input type="text" style={{display:"none"}} aria-hidden="true" />
-              <input type="password" style={{display:"none"}} aria-hidden="true" />
               <div className="flex items-center justify-between">
                 <Label>Headers <span className="text-xs text-muted-foreground">(API keys, auth tokens — stored securely)</span></Label>
-                <Button variant="outline" size="sm" onClick={addHeader}><Plus className="h-3 w-3 mr-1" />Add</Button>
+                <Button variant="outline" size="sm" onClick={addHeader} type="button"><Plus className="h-3 w-3 mr-1" />Add</Button>
               </div>
               {editTarget && !headersModified && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-2.5 py-1.5">
@@ -1073,9 +1074,36 @@ export default function IntegrationsPage() {
               <div className="space-y-2">
                 {form.headers.map((h, i) => (
                   <div key={i} className="flex gap-2">
-                    <Input placeholder="Authorization" value={h.key} onChange={(e) => updateHeader(i, "key", e.target.value)} className="flex-1" autoComplete="off" name={`hk-${i}`} />
-                    <Input placeholder="Bearer token…" value={h.value} onChange={(e) => updateHeader(i, "value", e.target.value)} className="flex-1" type="password" autoComplete="new-password" name={`hv-${i}`} />
-                    <Button variant="ghost" size="icon" onClick={() => removeHeader(i)}><X className="h-4 w-4" /></Button>
+                    <Input
+                      placeholder="Authorization"
+                      value={h.key}
+                      onChange={(e) => updateHeader(i, "key", e.target.value)}
+                      className="flex-1"
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-1p-ignore
+                    />
+                    <div className="flex-1 relative">
+                      <Input
+                        placeholder="Bearer otk_…"
+                        value={h.value}
+                        onChange={(e) => updateHeader(i, "value", e.target.value)}
+                        className="pr-9 font-mono text-xs"
+                        type={revealedHeaders.has(i) ? "text" : "password"}
+                        autoComplete="off"
+                        data-lpignore="true"
+                        data-1p-ignore
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleRevealHeader(i)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        tabIndex={-1}
+                      >
+                        {revealedHeaders.has(i) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => removeHeader(i)} type="button"><X className="h-4 w-4" /></Button>
                   </div>
                 ))}
               </div>
@@ -1109,10 +1137,10 @@ export default function IntegrationsPage() {
                 </div>
               )}
             </div>
-          </div>
+          </form>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving}>{saving ? "Saving…" : editTarget ? "Update" : "Create"}</Button>
+            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button type="button" onClick={handleSave} disabled={saving}>{saving ? "Saving…" : editTarget ? "Update" : "Create"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

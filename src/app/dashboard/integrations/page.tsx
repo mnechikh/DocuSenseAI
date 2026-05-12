@@ -719,7 +719,7 @@ export default function IntegrationsPage() {
     return true;
   };
 
-  const openCreate = () => { setEditTarget(null); setForm(emptyForm()); setDialogOpen(true); };
+  const openCreate = () => { setEditTarget(null); setRevealedHeaders(new Set()); setHeadersModified(false); setForm(emptyForm()); setDialogOpen(true); };
   const openEdit = (ig: IntegrationSummary) => {
     setEditTarget(ig);
     setHeadersModified(false);
@@ -1089,7 +1089,7 @@ export default function IntegrationsPage() {
                         value={h.value}
                         onChange={(e) => updateHeader(i, "value", e.target.value)}
                         className="pr-9 font-mono text-xs"
-                        type={revealedHeaders.has(i) ? "text" : "password"}
+                        type={revealedHeaders.has(i) ? "password" : "text"}
                         autoComplete="off"
                         data-lpignore="true"
                         data-1p-ignore
@@ -1100,7 +1100,7 @@ export default function IntegrationsPage() {
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                         tabIndex={-1}
                       >
-                        {revealedHeaders.has(i) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        {revealedHeaders.has(i) ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                       </button>
                     </div>
                     <Button variant="ghost" size="icon" onClick={() => removeHeader(i)} type="button"><X className="h-4 w-4" /></Button>

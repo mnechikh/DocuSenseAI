@@ -658,6 +658,7 @@ export default function IntegrationsPage() {
   const [testResults, setTestResults] = useState<TestIntegrationResult[]>([]);
   const [testResultsOpen, setTestResultsOpen] = useState(false);
   const [retestingId, setRetestingId] = useState<string | null>(null);
+  const [headersModified, setHeadersModified] = useState(false);
 
   useEffect(() => {
     getMyTenantQuota().then((q) => {
@@ -720,7 +721,8 @@ export default function IntegrationsPage() {
   const openCreate = () => { setEditTarget(null); setForm(emptyForm()); setDialogOpen(true); };
   const openEdit = (ig: IntegrationSummary) => {
     setEditTarget(ig);
-    setForm({ name: ig.name, description: ig.description, endpoint: ig.endpoint, method: ig.method, headers: [{ key: "", value: "" }], bodyTemplate: ig.bodyTemplate, parameters: ig.parameters });
+    setHeadersModified(false);
+    setForm({ name: ig.name, description: ig.description, endpoint: ig.endpoint, method: ig.method, headers: [], bodyTemplate: ig.bodyTemplate, parameters: ig.parameters });
     setDialogOpen(true);
   };
 
@@ -730,9 +732,13 @@ export default function IntegrationsPage() {
     if (!form.endpoint.startsWith("https://")) { toast({ title: "Endpoint must start with https://", variant: "destructive" }); return; }
     setSaving(true);
     try {
-      const payload = { name: form.name.trim(), description: form.description.trim(), endpoint: form.endpoint.trim(), method: form.method, headers: form.headers.filter((h) => h.key.trim()), bodyTemplate: form.bodyTemplate, parameters: form.parameters.filter((p) => p.name.trim()) };
-      if (editTarget) { await updateIntegration(editTarget.id, payload); toast({ title: "Integration updated" }); }
-      else { await createIntegration(payload); toast({ title: "Integration created" }); }
+      const filteredHeaders = form.headers.filter((h) => h.key.trim());
+      if (editTarget) {
+        const updatePayload: Parameters<typeof updateIntegration>[1] = { name: form.name.trim(), description: form.description.trim(), endpoint: form.endpoint.trim(), method: form.method, bodyTemplate: form.bodyTemplate, parameters: form.parameters.filter((p) => p.name.trim()), ...(headersModified && { headers: filteredHeaders }) };
+        await updateIntegration(editTarget.id, updatePayload); toast({ title: "Integration updated" });
+      } else {
+        await createIntegration({ name: form.name.trim(), description: form.description.trim(), endpoint: form.endpoint.trim(), method: form.method, headers: filteredHeaders, bodyTemplate: form.bodyTemplate, parameters: form.parameters.filter((p) => p.name.trim()) }); toast({ title: "Integration created" });
+      }
       setDialogOpen(false); await load();
     } catch (e: unknown) { toast({ title: "Save failed", description: (e as Error).message, variant: "destructive" }); }
     finally { setSaving(false); }
@@ -801,9 +807,9 @@ export default function IntegrationsPage() {
   const toggleSelectAll = () => setSelectedIds(selectedIds.size === integrations.length ? new Set() : new Set(integrations.map((i) => i.id)));
   const dismissOnboarding = () => { localStorage.setItem(ONBOARDING_KEY, "1"); setOnboardingVisible(false); };
 
-  const addHeader = () => setForm((f) => ({ ...f, headers: [...f.headers, { key: "", value: "" }] }));
-  const removeHeader = (i: number) => setForm((f) => ({ ...f, headers: f.headers.filter((_, idx) => idx !== i) }));
-  const updateHeader = (i: number, field: "key" | "value", val: string) => setForm((f) => { const h = [...f.headers]; h[i] = { ...h[i], [field]: val }; return { ...f, headers: h }; });
+  const addHeader = () => { setHeadersModified(true); setForm((f) => ({ ...f, headers: [...f.headers, { key: "", value: "" }] })); };
+  const removeHeader = (i: number) => { setHeadersModified(true); setForm((f) => ({ ...f, headers: f.headers.filter((_, idx) => idx !== i) })); };
+  const updateHeader = (i: number, field: "key" | "value", val: string) => { setHeadersModified(true); setForm((f) => { const h = [...f.headers]; h[i] = { ...h[i], [field]: val }; return { ...f, headers: h }; }); };
   const addParam = () => setForm((f) => ({ ...f, parameters: [...f.parameters, { name: "", type: "string", description: "", required: true }] }));
   const removeParam = (i: number) => setForm((f) => ({ ...f, parameters: f.parameters.filter((_, idx) => idx !== i) }));
   const updateParam = (i: number, field: keyof IntegrationParameter, val: unknown) => setForm((f) => { const p = [...f.parameters]; p[i] = { ...p[i], [field]: val }; return { ...f, parameters: p }; });
@@ -1052,15 +1058,23 @@ export default function IntegrationsPage() {
               </div>
             </div>
             <div className="space-y-1.5">
+              {/* Hidden honeypot inputs to block browser credential autofill */}
+              <input type="text" style={{display:"none"}} aria-hidden="true" />
+              <input type="password" style={{display:"none"}} aria-hidden="true" />
               <div className="flex items-center justify-between">
                 <Label>Headers <span className="text-xs text-muted-foreground">(API keys, auth tokens — stored securely)</span></Label>
                 <Button variant="outline" size="sm" onClick={addHeader}><Plus className="h-3 w-3 mr-1" />Add</Button>
               </div>
+              {editTarget && !headersModified && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-2.5 py-1.5">
+                  Saved headers are preserved server-side and not shown here. Add a row only if you want to replace them.
+                </p>
+              )}
               <div className="space-y-2">
                 {form.headers.map((h, i) => (
                   <div key={i} className="flex gap-2">
-                    <Input placeholder="Authorization" value={h.key} onChange={(e) => updateHeader(i, "key", e.target.value)} className="flex-1" />
-                    <Input placeholder="Bearer token…" value={h.value} onChange={(e) => updateHeader(i, "value", e.target.value)} className="flex-1" type="password" />
+                    <Input placeholder="Authorization" value={h.key} onChange={(e) => updateHeader(i, "key", e.target.value)} className="flex-1" autoComplete="off" name={`hk-${i}`} />
+                    <Input placeholder="Bearer token…" value={h.value} onChange={(e) => updateHeader(i, "value", e.target.value)} className="flex-1" type="password" autoComplete="new-password" name={`hv-${i}`} />
                     <Button variant="ghost" size="icon" onClick={() => removeHeader(i)}><X className="h-4 w-4" /></Button>
                   </div>
                 ))}

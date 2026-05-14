@@ -88,6 +88,24 @@ interface OASchema {
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 
+/** Prefer the human-readable `summary`; fall back to cleaned operationId; then the raw key. */
+function cleanOperationName(operationId: string | undefined, summary: string | undefined, fallback: string): string {
+  // 1. Summary is written for humans — always prefer it
+  if (summary?.trim()) {
+    const s = summary.trim();
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+  // 2. operationId — strip leading version prefix (v1, v2, V1, v1_, v1- …) then split camelCase
+  if (operationId) {
+    const stripped = operationId.replace(/^[vV]\d+[-_]?/, '');
+    return stripped
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/^./, (c) => c.toUpperCase())
+      .trim();
+  }
+  return fallback;
+}
+
 function firstServerUrl(spec: OASpec): string {
   const url = spec.servers?.[0]?.url?.replace(/\/$/, '') ?? '';
   // Strip localhost entries, prefer https
@@ -170,12 +188,9 @@ export function parseOpenApiSpec(raw: unknown): ParseOpenApiResult {
       if (!operation) continue;
 
       const operationKey = `${method.toUpperCase()} ${path}`;
-      const name =
-        operation.operationId
-          ? operation.operationId.replace(/([A-Z])/g, ' $1').trim()
-          : operation.summary?.trim()
-          ?? operationKey;
+      const name = cleanOperationName(operation.operationId, operation.summary, operationKey);
 
+      // Use the richer `description` field when available; summary is the short title
       const description = (operation.description ?? operation.summary ?? '').trim();
 
       // Build endpoint URL — replace {paramName} with {{paramName}} for Lumxia placeholders

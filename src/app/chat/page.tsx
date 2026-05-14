@@ -387,8 +387,18 @@ function ChatContent() {
 
     try {
       const chat = chats.find((c) => c.id === activeChatId);
-      const history =
-        chat?.messages.map((m) => ({ role: m.role, content: m.content })) ?? [];
+      // Build history including execution results as synthetic turns so the AI can
+      // extract IDs (bidId, runId, etc.) from previous actions and chain them automatically.
+      const history: { role: "user" | "model"; content: string }[] = [];
+      for (const m of chat?.messages ?? []) {
+        history.push({ role: m.role, content: m.content });
+        if (m.executedAction?.success && m.executedAction.result) {
+          history.push({
+            role: "user",
+            content: `[Action result from "${m.executedAction.integrationName}"]\n${m.executedAction.result}`,
+          });
+        }
+      }
 
       const response = await getAIPoweredAnswersFromDocuments({
         tenantId: currentUser.tenantId,

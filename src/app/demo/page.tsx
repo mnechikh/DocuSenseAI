@@ -16,6 +16,9 @@ import {
   CheckCircle2,
   Loader2,
   Menu,
+  Mic,
+  MicOff,
+  FileCode,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -391,15 +394,50 @@ export default function DemoPage() {
   const [streaming, setStreaming] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const streamInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    setVoiceSupported(
+      typeof window !== "undefined" &&
+        ("SpeechRecognition" in window || "webkitSpeechRecognition" in window)
+    );
+  }, []);
+
+  const toggleVoice = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition) as any;
+    if (!SR) return;
+    if (isListening) { recognitionRef.current?.stop(); setIsListening(false); return; }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = new SR() as any;
+    r.continuous = false; r.interimResults = true; r.lang = "en-US";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    r.onresult = (e: any) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const t = Array.from(e.results as any[]).map((res: any) => res[0].transcript as string).join("");
+      setInput(t);
+    };
+    r.onend = () => setIsListening(false);
+    r.onerror = () => setIsListening(false);
+    r.start();
+    recognitionRef.current = r;
+    setIsListening(true);
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   // Cleanup on unmount
-  useEffect(() => () => { if (streamInterval.current) clearInterval(streamInterval.current); }, []);
+  useEffect(() => () => {
+    if (streamInterval.current) clearInterval(streamInterval.current);
+    if (recognitionRef.current) recognitionRef.current.abort();
+  }, []);
 
   function handleSend(text?: string) {
     const query = (text ?? input).trim();
@@ -653,8 +691,7 @@ export default function DemoPage() {
         <div className="relative z-20 flex items-center justify-center gap-3 px-4 py-2.5 text-xs" style={{ background: "linear-gradient(90deg, rgba(251,191,36,0.12), rgba(251,191,36,0.08))", borderBottom: "1px solid rgba(251,191,36,0.18)" }}>
           <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
           <span className="text-amber-200/80">
-            You&apos;re in <strong className="text-amber-300">Demo Mode</strong> — responses are pre-scripted using sample documents. No account needed.
-          </span>
+            You&apos;re in <strong className="text-amber-300">Demo Mode</strong> — responses are pre-scripted using sample documents. Voice input and API integrations are live.          </span>
           <Link href="/login" className="ml-2 shrink-0">
             <Button size="sm" className="h-6 px-3 text-[11px] border-0 rounded-lg" style={{ background: G, color: "#fff" }}>
               Sign up free <ArrowRight className="ml-1 w-3 h-3" />
@@ -819,6 +856,7 @@ export default function DemoPage() {
                   <Globe className="w-3.5 h-3.5 shrink-0" style={{ color: "#9B8CFF" }} />
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium text-[#E5E7EB] leading-tight truncate">{api.name}</p>
+                    <p className="text-[9px] text-white/25 mt-0.5">Imported via OpenAPI spec</p>
                   </div>
                   <span className="flex items-center gap-1 text-[10px] font-medium" style={{ color: api.color }}>
                     <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: api.color }} />
@@ -826,6 +864,10 @@ export default function DemoPage() {
                   </span>
                 </div>
               ))}
+            </div>
+            <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(124,140,255,0.05)", border: "1px solid rgba(124,140,255,0.10)" }}>
+              <FileCode className="w-3.5 h-3.5 text-[#9B8CFF] shrink-0" />
+              <p className="text-[10px] text-white/35 leading-snug">Paste any OpenAPI spec to auto-configure endpoints in seconds</p>
             </div>
           </div>
 
@@ -970,11 +1012,29 @@ export default function DemoPage() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   disabled={streaming}
-                  placeholder="Ask about documents or trigger an API integration…"
+                  placeholder={isListening ? "Listening… speak your question" : "Ask about documents or trigger an API integration…"}
                   className="flex-1 px-4 py-3 rounded-xl text-sm text-[#F9FAFB] placeholder-[#6B7280] outline-none disabled:opacity-50"
                   style={{ background: "rgba(31,41,55,0.6)", border: "1px solid rgba(255,255,255,0.08)" }}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 />
+                {voiceSupported && (
+                  <button
+                    type="button"
+                    onClick={toggleVoice}
+                    title={isListening ? "Stop listening" : "Voice input"}
+                    className={`h-11 w-11 shrink-0 rounded-xl flex items-center justify-center transition-colors ${
+                      isListening
+                        ? "animate-pulse"
+                        : ""}
+                    `}
+                    style={isListening
+                      ? { background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.4)", color: "#F87171" }
+                      : { background: "rgba(31,41,55,0.6)", border: "1px solid rgba(255,255,255,0.08)", color: "#6B7280" }
+                    }
+                  >
+                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </button>
+                )}
                 <Button
                   type="submit"
                   disabled={!input.trim() || streaming}

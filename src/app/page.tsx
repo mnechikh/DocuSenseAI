@@ -26,6 +26,9 @@ import {
   Database,
   BarChart3,
   ChevronRight,
+  Mic,
+  Activity,
+  FileCode,
 } from "lucide-react";
 
 const LUMXIA_GRADIENT = "linear-gradient(135deg, #7C8CFF 0%, #9B8CFF 50%, #C084FC 100%)";
@@ -131,7 +134,7 @@ export default function Home() {
             style={{ background: "rgba(124,140,255,0.08)", borderColor: "rgba(124,140,255,0.2)", color: "#9B8CFF" }}
           >
             <Sparkles className="w-3 h-3" />
-            AI knowledge + live integrations · Chat, query, and take action · Powered by Gemini 2.5
+            Voice · AI docs · Live integrations · Chat, query, and take action · Powered by Gemini 2.5
           </div>
 
           <h1 className="text-5xl md:text-[68px] font-extrabold tracking-tight leading-[1.05] mb-6">
@@ -222,7 +225,7 @@ export default function Home() {
             {[
               { step: "01", Icon: Upload, label: "Upload documents", desc: "PDF, DOCX, XLSX, CSV, images — drag and drop files, folders, or a ZIP archive." },
               { step: "02", Icon: Sparkles, label: "Lumxia indexes + understands", desc: "Content is extracted, chunked, and semantically embedded. Ready in under 15 seconds." },
-              { step: "03", Icon: MessageSquare, label: "Ask in natural language", desc: "Type any question. No query syntax, no Boolean operators, no learning curve." },
+              { step: "03", Icon: MessageSquare, label: "Ask by typing or speaking", desc: "Type your question or tap the mic and speak. No query syntax, no Boolean operators, no learning curve." },
               { step: "04", Icon: Zap, label: "Get accurate answers instantly", desc: "Precise, grounded answers with source citations from your actual documents." },
               { step: "05", Icon: Zap, label: "Take action from chat", desc: "Connect your APIs. One click triggers live calls — fetch, submit, update — all in the chat thread.", highlight: true },
             ].map((s) => (
@@ -254,6 +257,9 @@ export default function Home() {
               { Icon: Zap, color: "#7C8CFF", bg: "rgba(124,140,255,0.12)", title: "AI-Powered Integrations", desc: "Connect any REST API. Ask in natural language, Lumxia triggers the call and surfaces results as a readable table." },
               { Icon: Building2, color: "#9B8CFF", bg: "rgba(155,140,255,0.12)", title: "Bulk Upload & Indexing", desc: "Drop a ZIP, drag a folder, or push via API. Lumxia queues and processes everything." },
               { Icon: FileText, color: "#C084FC", bg: "rgba(192,132,252,0.12)", title: "All Document Formats", desc: "PDF, DOCX, XLSX, CSV, TXT, images — OCR fallback for scanned documents." },
+              { Icon: Mic, color: "#7C8CFF", bg: "rgba(124,140,255,0.12)", title: "Voice Input", desc: "Tap the mic and speak your question. Browser-native speech recognition — zero cost, works on iOS, Android, and desktop Chrome." },
+              { Icon: Activity, color: "#9B8CFF", bg: "rgba(155,140,255,0.12)", title: "Streaming AI Responses", desc: "Answers type in real-time with a smooth typewriter effect. Start reading while the AI is still composing — no full-page loading wait." },
+              { Icon: FileCode, color: "#C084FC", bg: "rgba(192,132,252,0.12)", title: "OpenAPI Spec Import", desc: "Paste or upload a Swagger / OpenAPI spec and every endpoint auto-configures — names, parameters, and auth headers ready in seconds." },
             ].map((f) => (
               <div
                 key={f.title}
@@ -364,6 +370,9 @@ export default function Home() {
               <div className="px-4 pb-4">
                 <div className="flex items-center gap-2 rounded-xl px-3 py-2 border border-white/8" style={{ background: "rgba(31,41,55,0.5)" }}>
                   <span className="flex-1 text-xs text-white/20">Ask a question or trigger an action…</span>
+                  <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                    <Mic className="w-3 h-3 text-white/30" />
+                  </div>
                   <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: LUMXIA_GRADIENT }}>
                     <ChevronRight className="w-3 h-3 text-white" />
                   </div>
@@ -375,11 +384,11 @@ export default function Home() {
             <div className="space-y-8 pt-4">
               {[
                 {
-                  Icon: Globe,
+                  Icon: FileCode,
                   color: "#7C8CFF",
                   bg: "rgba(124,140,255,0.10)",
-                  title: "Connect any REST API",
-                  desc: "Add your endpoint, auth headers, and parameters from the Integrations dashboard. Lumxia handles Bearer tokens, API keys, and custom headers — securely stored, never exposed to users.",
+                  title: "Import from any OpenAPI spec",
+                  desc: "Paste or upload a Swagger / OpenAPI spec and every endpoint auto-configures in seconds — names, parameters, and auth headers detected automatically. No manual setup.",
                 },
                 {
                   Icon: Sparkles,
@@ -484,7 +493,9 @@ export default function Home() {
                 { label: "Multi-tenant by design", desc: "Every workspace is cryptographically isolated" },
                 { label: "Role-based access control", desc: "Granular Admin and User permissions" },
                 { label: "Works across ALL document types", desc: "PDF, DOCX, XLSX, images, and more" },
-                { label: "Native API integrations", desc: "Connect any REST API — trigger live calls from chat" },
+                { label: "Native API integrations via OpenAPI", desc: "Import any spec — endpoints auto-configure in seconds" },
+                { label: "Voice input on all devices", desc: "Speak questions on iOS, Android, and desktop Chrome" },
+                { label: "Streaming real-time responses", desc: "Answers type as they're generated — no loading wait" },
                 { label: "Scales with your organisation", desc: "From 1 user to enterprise teams" },
               ].map((b) => (
                 <div key={b.label} className="flex items-start gap-3 p-4 rounded-xl border border-white/5" style={{ background: "rgba(31,41,55,0.35)" }}>

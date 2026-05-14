@@ -1,10 +1,17 @@
-import type {Metadata} from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
   title: 'Lumxia | AI Life Orchestrator',
   description: 'Lumxia is a warm, human-centered AI platform that turns your team\'s documents into an always-on knowledge base. Upload, ask, understand.',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  interactiveWidget: 'resizes-content',
 };
 
 export default function RootLayout({

@@ -54,6 +54,8 @@ import {
   CheckCircle2,
   XCircle,
   CreditCard,
+  Mic,
+  MicOff,
 } from "lucide-react";
 import { getAIPoweredAnswersFromDocuments } from "@/ai/flows/get-ai-powered-answers-from-documents";
 import { interpretActionResult } from "@/ai/flows/interpret-action-result";
@@ -346,6 +348,9 @@ function ChatContent() {
 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [streamingText, setStreamingText] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
   const [runningActionIdx, setRunningActionIdx] = useState<number | null>(null);
   const [interpretingActionIdx, setInterpretingActionIdx] = useState<number | null>(null);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -354,6 +359,9 @@ function ChatContent() {
   // Sentinel element at the bottom of the message list — scrolling it into
   // view is more reliable than manipulating scrollTop on the ScrollArea wrapper.
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
 
   const currentChat = chats.find((c) => c.id === chatId);
   const tenantDocs = documents.filter(
@@ -364,6 +372,14 @@ function ChatContent() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [currentChat?.messages, isLoading]);
+
+  useEffect(() => {
+    setVoiceSupported(
+      typeof window !== "undefined" &&
+        ("SpeechRecognition" in window || "webkitSpeechRecognition" in window)
+    );
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, []);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -423,6 +439,25 @@ function ChatContent() {
         citations: response.citations,
         proposedAction: response.proposedAction,
       });
+      // Start typewriter animation — clear loading spinner first
+      setIsLoading(false);
+      if (response.answer && response.answer !== "__QUOTA_EXCEEDED__") {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        setStreamingText("");
+        let charIdx = 0;
+        const fullText = response.answer;
+        const tick = () => {
+          charIdx = Math.min(charIdx + 4, fullText.length);
+          setStreamingText(fullText.slice(0, charIdx));
+          if (charIdx < fullText.length) {
+            rafRef.current = requestAnimationFrame(tick);
+          } else {
+            setStreamingText(null);
+            rafRef.current = null;
+          }
+        };
+        rafRef.current = requestAnimationFrame(tick);
+      }
     } catch (error: unknown) {
       const msg = (error as Error).message ?? "";
       const isQuotaError = msg.toLowerCase().includes("limit") || msg.toLowerCase().includes("quota");
@@ -527,9 +562,34 @@ function ChatContent() {
     setRenameDialogOpen(true);
   };
 
+  const toggleVoice = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition) as any;
+    if (!SR) return;
+    if (isListening) { recognitionRef.current?.stop(); setIsListening(false); return; }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = new SR() as any;
+    r.continuous = false; r.interimResults = true; r.lang = "en-US";
+    r.onresult = (e: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const t = Array.from(e.results as any[]).map((res: any) => res[0].transcript as string).join("");
+      setInput(t);
+    };
+    r.onend = () => setIsListening(false);
+    r.onerror = () => setIsListening(false);
+    r.start();
+    recognitionRef.current = r;
+    setIsListening(true);
+  };
+
+  const lastModelIdx = (currentChat?.messages ?? []).reduce(
+    (last, m, i) => (m.role === "model" ? i : last),
+    -1
+  );
+
   return (
     <>
-      <div className="flex flex-col h-[calc(100vh-8rem)] max-w-5xl mx-auto bg-card rounded-2xl shadow-xl border border-border overflow-hidden">
+      <div className="flex flex-col h-[calc(100dvh-8rem)] max-w-5xl mx-auto bg-card rounded-2xl shadow-xl border border-border overflow-hidden">
         {/* Header */}
         <div className="p-4 border-b bg-primary text-primary-foreground flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -718,7 +778,7 @@ function ChatContent() {
                     {message.role === "user" ? (
                       message.content
                     ) : (
-                      <MarkdownContent content={message.content} />
+                      <MarkdownContent content={streamingText !== null && idx === lastModelIdx ? streamingText : message.content} />
                     )}
                   </div>
                   )}
@@ -860,13 +920,15 @@ function ChatContent() {
         </div>
 
         {/* Input bar */}
-        <div className="p-4 border-t border-border bg-card shrink-0">
+        <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-border bg-card shrink-0">
           <form onSubmit={handleSendMessage} className="flex gap-2">
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={
-                hasIndexedDocs
+                isListening
+                  ? "Listening…"
+                  : hasIndexedDocs
                   ? "Ask a question about your documents…"
                   : "Upload documents first to start asking questions…"
               }
@@ -874,6 +936,18 @@ function ChatContent() {
               disabled={isLoading}
               maxLength={2000}
             />
+            {voiceSupported && (
+              <Button
+                type="button"
+                size="icon"
+                variant={isListening ? "default" : "outline"}
+                className={cn("shrink-0 transition-colors", isListening && "bg-red-500 hover:bg-red-600 border-red-500")}
+                onClick={toggleVoice}
+                title={isListening ? "Stop listening" : "Voice input"}
+              >
+                {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </Button>
+            )}
             <Button
               type="submit"
               size="icon"

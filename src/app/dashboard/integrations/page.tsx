@@ -828,6 +828,12 @@ function OpenApiImportDialog({ open, onOpenChange, connections, onSuccess, integ
     if (!specText.trim()) { setSpecError("Paste an OpenAPI JSON spec first."); return; }
     try {
       const json = JSON.parse(specText);
+      // Detect API error responses masquerading as spec files
+      if (json && typeof json === "object" && "error" in json && !("openapi" in json) && !("paths" in json) && !("swagger" in json)) {
+        const msg = (json as { error: unknown }).error;
+        setSpecError(`This file looks like an API error response, not an OpenAPI spec:\n"${msg}"\n\nThe spec URL likely requires authentication. Download it with proper credentials or ask the API provider for the spec.`);
+        return;
+      }
       const result = parseOpenApiSpec(json);
       setParsed(result);
       const limit = slotsRemaining === Infinity ? result.endpoints.length : Math.min(result.endpoints.length, slotsRemaining);
@@ -911,7 +917,18 @@ function OpenApiImportDialog({ open, onOpenChange, connections, onSuccess, integ
                 <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={(e) => {
                   const file = e.target.files?.[0]; if (!file) return;
                   const reader = new FileReader();
-                  reader.onload = (ev) => { setSpecText(ev.target?.result as string ?? ""); setSpecError(null); };
+                  reader.onload = (ev) => {
+                    const text = ev.target?.result as string ?? "";
+                    setSpecText(text);
+                    setSpecError(null);
+                    // Early warning: detect if the file looks like an error response
+                    try {
+                      const json = JSON.parse(text);
+                      if (json && typeof json === "object" && "error" in json && !("openapi" in json) && !("paths" in json)) {
+                        setSpecError(`This file looks like an API error response, not an OpenAPI spec: "${(json as { error: unknown }).error}"\n\nThe spec URL likely requires authentication. Download it with proper credentials or paste the spec directly.`);
+                      }
+                    } catch { /* not valid JSON yet — user can fix in textarea */ }
+                  };
                   reader.readAsText(file);
                 }} />
                 <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><Upload className="h-3.5 w-3.5 mr-1.5" />Upload JSON file</Button>

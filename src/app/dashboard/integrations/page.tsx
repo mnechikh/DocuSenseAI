@@ -13,6 +13,7 @@ import {
   listAllIntegrations,
   updateIntegration,
   deleteIntegration,
+  deleteIntegrations,
   executeIntegration,
   importIntegrations,
   exportIntegrations,
@@ -1098,6 +1099,8 @@ export default function IntegrationsPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkTesting, setBulkTesting] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [testResults, setTestResults] = useState<TestIntegrationResult[]>([]);
   const [testResultsOpen, setTestResultsOpen] = useState(false);
   const [retestingId, setRetestingId] = useState<string | null>(null);
@@ -1257,6 +1260,17 @@ export default function IntegrationsPage() {
     finally { setExporting(false); }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0 || bulkDeleting) return;
+    setBulkDeleting(true);
+    try {
+      const { deleted } = await deleteIntegrations(Array.from(selectedIds));
+      toast({ title: `Deleted ${deleted} integration${deleted !== 1 ? "s" : ""}` });
+      setSelectedIds(new Set()); setSelectMode(false); setBulkDeleteOpen(false); await load();
+    } catch (e: unknown) { toast({ title: "Bulk delete failed", description: (e as Error).message, variant: "destructive" }); }
+    finally { setBulkDeleting(false); }
+  };
+
   const handleBulkTest = async () => {
     if (selectedIds.size === 0 || bulkTesting) return;
     setBulkTesting(true);
@@ -1407,6 +1421,9 @@ export default function IntegrationsPage() {
               {bulkTesting ? <><Clock className="h-3.5 w-3.5 mr-1.5 animate-pulse" />Testing…</> : <><Play className="h-3.5 w-3.5 mr-1.5" />Test Selected ({selectedIds.size})</>}
             </Button>
             {testResults.length > 0 && <Button variant="outline" size="sm" onClick={() => setTestResultsOpen(true)}>View Last Results</Button>}
+            <Button variant="outline" size="sm" disabled={selectedIds.size === 0 || bulkDeleting} onClick={() => setBulkDeleteOpen(true)} className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive">
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete ({selectedIds.size})
+            </Button>
           </div>
         </div>
       )}
@@ -1669,6 +1686,20 @@ export default function IntegrationsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Delete */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={(o) => { if (!bulkDeleting) setBulkDeleteOpen(o); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.size} integration{selectedIds.size !== 1 ? "s" : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently remove all {selectedIds.size} selected integration{selectedIds.size !== 1 ? "s" : ""}. The AI will no longer be able to propose these actions. This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} disabled={bulkDeleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{bulkDeleting ? "Deleting…" : `Delete ${selectedIds.size}`}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>

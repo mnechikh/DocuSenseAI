@@ -230,6 +230,25 @@ export async function deleteIntegration(id: string): Promise<void> {
   await ref.delete();
 }
 
+export async function deleteIntegrations(ids: string[]): Promise<{ deleted: number }> {
+  if (!ids.length) return { deleted: 0 };
+  const user = await getSessionUser();
+  requireAdmin(user);
+
+  // Fetch all docs first to verify tenant ownership
+  const snaps = await Promise.all(ids.map((id) => adminDb.collection('integrations').doc(id).get()));
+  const valid = snaps.filter((s) => s.exists && (s.data() as IntegrationRecord).tenantId === user!.tenantId);
+
+  // Firestore batches are limited to 500 operations
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < valid.length; i += BATCH_SIZE) {
+    const batch = adminDb.batch();
+    valid.slice(i, i + BATCH_SIZE).forEach((s) => batch.delete(s.ref));
+    await batch.commit();
+  }
+  return { deleted: valid.length };
+}
+
 // ─── Execute ──────────────────────────────────────────────────────────────────
 
 /**

@@ -70,15 +70,24 @@ import {
   LayoutDashboard, ChevronDown, ChevronUp, X, Lock, CreditCard,
   Upload, Download, BookOpen, Play, HelpCircle,
   CheckCircle2, XCircle, Clock, Copy, Check, ChevronRight,
-  Sparkles, Filter, Eye, EyeOff,
+  Sparkles, Filter, Eye, EyeOff, Globe, Link2, FileCode,
 } from "lucide-react";
+import {
+  createConnection,
+  listConnections,
+  updateConnection,
+  deleteConnection,
+  getConnectionHeaders,
+  type ConnectionSummary,
+} from "@/lib/connection-actions";
+import { parseOpenApiSpec, type ParseOpenApiResult } from "@/lib/parse-openapi";
 import Link from "next/link";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 interface HeaderRow { key: string; value: string }
 interface FormState {
   name: string; description: string; endpoint: string;
-  method: HttpMethod; headers: HeaderRow[]; bodyTemplate: string;
+  method: HttpMethod; headers: HeaderRow[]; connectionId: string; bodyTemplate: string;
   parameters: IntegrationParameter[];
 }
 interface ParsedPreviewRow {
@@ -88,7 +97,7 @@ interface ParsedPreviewRow {
 
 const emptyForm = (): FormState => ({
   name: "", description: "", endpoint: "https://", method: "POST",
-  headers: [{ key: "", value: "" }], bodyTemplate: "", parameters: [],
+  headers: [{ key: "", value: "" }], connectionId: "", bodyTemplate: "", parameters: [],
 });
 
 const ONBOARDING_KEY = "lumxia-integrations-onboarding-dismissed";
@@ -630,6 +639,422 @@ function OnboardingBanner({ onDismiss, onAdd, onImport, onTemplates }: {
   );
 }
 
+// ─── ConnectionsSection ────────────────────────────────────────────────────────
+
+function ConnectionsSection({ connections, loadingConnections, onReload }: {
+  connections: ConnectionSummary[];
+  loadingConnections: boolean;
+  onReload: () => void;
+}) {
+  const { toast } = useToast();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<ConnectionSummary | null>(null);
+  const [connName, setConnName] = useState("");
+  const [connDesc, setConnDesc] = useState("");
+  const [connHeaders, setConnHeaders] = useState<{ key: string; value: string }[]>([{ key: "", value: "" }]);
+  const [connHeadersRevealed, setConnHeadersRevealed] = useState<Set<number>>(new Set());
+  const [connHeadersLoading, setConnHeadersLoading] = useState(false);
+  const [connSaving, setConnSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ConnectionSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const openCreate = () => {
+    setEditTarget(null); setConnName(""); setConnDesc(""); setConnHeaders([{ key: "", value: "" }]); setConnHeadersRevealed(new Set()); setDialogOpen(true);
+  };
+  const openEdit = async (c: ConnectionSummary) => {
+    setEditTarget(c); setConnName(c.name); setConnDesc(c.description); setConnHeaders([]); setConnHeadersRevealed(new Set()); setDialogOpen(true);
+    setConnHeadersLoading(true);
+    try { const h = await getConnectionHeaders(c.id); setConnHeaders(h.length > 0 ? h : [{ key: "", value: "" }]); } catch { /* non-fatal */ } finally { setConnHeadersLoading(false); }
+  };
+  const handleSave = async () => {
+    if (connSaving) return;
+    if (!connName.trim()) { toast({ title: "Name is required", variant: "destructive" }); return; }
+    setConnSaving(true);
+    try {
+      const h = connHeaders.filter((h) => h.key.trim());
+      if (editTarget) { await updateConnection(editTarget.id, { name: connName.trim(), description: connDesc.trim(), headers: h }); toast({ title: "Connection updated" }); }
+      else { await createConnection({ name: connName.trim(), description: connDesc.trim(), headers: h }); toast({ title: "Connection created" }); }
+      setDialogOpen(false); onReload();
+    } catch (err: unknown) { toast({ title: "Save failed", description: (err as Error).message, variant: "destructive" }); }
+    finally { setConnSaving(false); }
+  };
+  const handleDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteConnection(deleteTarget.id);
+      toast({ title: "Connection deleted", description: "Integrations using this connection will fall back to their own headers." });
+      setDeleteTarget(null); onReload();
+    } catch (err: unknown) { toast({ title: "Delete failed", description: (err as Error).message, variant: "destructive" }); }
+    finally { setDeleting(false); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-sm text-muted-foreground max-w-lg">
+          Shared credential sets. Link multiple integrations to one connection — update the token once and all linked integrations pick it up automatically. No more entering the same API key 12 times.
+        </p>
+        <Button size="sm" onClick={openCreate} className="shrink-0"><Plus className="h-3.5 w-3.5 mr-1.5" />New Connection</Button>
+      </div>
+
+      {loadingConnections ? (
+        <div className="space-y-2">{[1, 2].map((i) => <Card key={i} className="animate-pulse"><CardHeader><div className="h-4 w-40 bg-muted rounded" /></CardHeader></Card>)}</div>
+      ) : connections.length === 0 ? (
+        <Card>
+          <CardContent className="py-14 text-center">
+            <Globe className="mx-auto h-9 w-9 text-muted-foreground/40 mb-3" />
+            <p className="text-sm font-semibold mb-1">No connections yet</p>
+            <p className="text-xs text-muted-foreground max-w-sm mx-auto mb-4">A connection stores auth headers (API keys, Bearer tokens) once. Then link any number of integrations from the same system to it — no redundant credential entry.</p>
+            <Button size="sm" onClick={openCreate}><Plus className="h-3.5 w-3.5 mr-1.5" />New Connection</Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {connections.map((c) => (
+            <Card key={c.id}>
+              <CardHeader className="py-3 px-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="font-semibold text-sm">{c.name}</span>
+                      {c.headerKeys.map((k) => <code key={k} className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground">{k}: ****</code>)}
+                      {c.headerKeys.length === 0 && <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">⚠ No headers yet</Badge>}
+                    </div>
+                    {c.description && <p className="text-xs text-muted-foreground mt-1 ml-6">{c.description}</p>}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(c)}><Pencil className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(c)} className="text-destructive hover:text-destructive"><Trash2 className="h-4 w-4" /></Button>
+                  </div>
+                </div>
+              </CardHeader>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={dialogOpen} onOpenChange={(v) => { if (!connSaving) setDialogOpen(v); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Globe className="h-4 w-4" />{editTarget ? "Edit Connection" : "New Connection"}</DialogTitle>
+            <DialogDescription>Shared auth credentials used by all linked integrations. Values are stored server-side only — never returned to the browser or exported.</DialogDescription>
+          </DialogHeader>
+          <form autoComplete="off" onSubmit={(e) => e.preventDefault()} className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Connection name <span className="text-destructive">*</span></Label>
+              <Input placeholder="Opportunity Tracker API" value={connName} onChange={(e) => setConnName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description <span className="text-xs text-muted-foreground">(optional)</span></Label>
+              <Input placeholder="Production credentials for opptrackerai.com" value={connDesc} onChange={(e) => setConnDesc(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>Auth Headers <span className="text-xs text-muted-foreground">(stored securely — never returned to browser)</span></Label>
+                <Button variant="outline" size="sm" type="button" onClick={() => setConnHeaders((h) => [...h, { key: "", value: "" }])}><Plus className="h-3 w-3 mr-1" />Add</Button>
+              </div>
+              {connHeadersLoading ? <p className="text-xs text-muted-foreground py-1">Loading saved headers…</p> : (
+                <div className="space-y-2">
+                  {connHeaders.map((h, i) => (
+                    <div key={i} className="flex gap-2">
+                      <Input placeholder="Authorization" value={h.key} onChange={(e) => setConnHeaders((hs) => { const n = [...hs]; n[i] = { ...n[i], key: e.target.value }; return n; })} className="flex-[2]" autoComplete="off" data-lpignore="true" data-1p-ignore />
+                      <div className="flex-[3] relative">
+                        <Input placeholder="Bearer your-token-here" value={h.value} onChange={(e) => setConnHeaders((hs) => { const n = [...hs]; n[i] = { ...n[i], value: e.target.value }; return n; })} className="pr-9 font-mono text-xs" type={connHeadersRevealed.has(i) ? "text" : "password"} autoComplete="new-password" data-lpignore="true" data-1p-ignore />
+                        <button type="button" onClick={() => setConnHeadersRevealed((r) => { const n = new Set(r); n.has(i) ? n.delete(i) : n.add(i); return n; })} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" tabIndex={-1}>
+                          {connHeadersRevealed.has(i) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                      <Button variant="ghost" size="icon" type="button" onClick={() => setConnHeaders((hs) => hs.filter((_, idx) => idx !== i))}><X className="h-4 w-4" /></Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </form>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={connSaving}>{connSaving ? "Saving…" : editTarget ? "Update" : "Create"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete connection?</AlertDialogTitle>
+            <AlertDialogDescription><strong>{deleteTarget?.name}</strong> will be removed. Integrations using it will fall back to their own headers — they will not be deleted.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{deleting ? "Deleting…" : "Delete"}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+// ─── OpenApiImportDialog ───────────────────────────────────────────────────────
+
+function OpenApiImportDialog({ open, onOpenChange, connections, onSuccess, integrationQuota, existingCount }: {
+  open: boolean; onOpenChange: (v: boolean) => void;
+  connections: ConnectionSummary[]; onSuccess: () => void;
+  integrationQuota: number; existingCount: number;
+}) {
+  const { toast } = useToast();
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [specText, setSpecText] = useState("");
+  const [specError, setSpecError] = useState<string | null>(null);
+  const [parsed, setParsed] = useState<ParseOpenApiResult | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [authMode, setAuthMode] = useState<"new" | "existing" | "skip">("new");
+  const [newConnName, setNewConnName] = useState("");
+  const [newConnDesc, setNewConnDesc] = useState("");
+  const [schemeValues, setSchemeValues] = useState<Record<string, string>>({});
+  const [existingConnId, setExistingConnId] = useState("");
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const slotsRemaining = integrationQuota >= 999 ? Infinity : Math.max(0, integrationQuota - existingCount);
+
+  useEffect(() => {
+    if (!open) { setStep(1); setSpecText(""); setSpecError(null); setParsed(null); setSelectedKeys(new Set()); setAuthMode("new"); setNewConnName(""); setNewConnDesc(""); setSchemeValues({}); setExistingConnId(""); setImporting(false); }
+  }, [open]);
+
+  const handleParse = () => {
+    setSpecError(null);
+    if (!specText.trim()) { setSpecError("Paste an OpenAPI JSON spec first."); return; }
+    try {
+      const json = JSON.parse(specText);
+      const result = parseOpenApiSpec(json);
+      setParsed(result);
+      const limit = slotsRemaining === Infinity ? result.endpoints.length : Math.min(result.endpoints.length, slotsRemaining);
+      setSelectedKeys(new Set(result.endpoints.slice(0, limit).map((e) => e.operationKey)));
+      setNewConnName(result.title);
+      setNewConnDesc(`Auth credentials for ${result.title}`);
+      const sv: Record<string, string> = {};
+      result.securitySchemes.forEach((s) => { sv[s.name] = ""; });
+      setSchemeValues(sv);
+      setStep(2);
+    } catch (err: unknown) { setSpecError(`Parse error: ${(err as Error).message}`); }
+  };
+
+  const toggleKey = (key: string) => {
+    setSelectedKeys((prev) => {
+      const n = new Set(prev);
+      if (n.has(key)) { n.delete(key); }
+      else if (slotsRemaining === Infinity || n.size < slotsRemaining) { n.add(key); }
+      else { toast({ title: "Quota reached", description: `Select up to ${slotsRemaining} endpoint${slotsRemaining !== 1 ? "s" : ""} on your current plan.`, variant: "destructive" }); }
+      return n;
+    });
+  };
+  const toggleAll = () => {
+    if (!parsed) return;
+    const limit = slotsRemaining === Infinity ? parsed.endpoints.length : Math.min(parsed.endpoints.length, slotsRemaining);
+    setSelectedKeys(selectedKeys.size > 0 ? new Set() : new Set(parsed.endpoints.slice(0, limit).map((e) => e.operationKey)));
+  };
+
+  const handleImport = async () => {
+    if (!parsed || importing) return;
+    setImporting(true);
+    try {
+      let connectionId: string | undefined;
+      if (authMode === "new" && newConnName.trim()) {
+        const heads = parsed.securitySchemes
+          .map((s) => ({ key: s.headerKey, value: schemeValues[s.name]?.trim() ?? "" }))
+          .filter((h) => h.value);
+        if (heads.length > 0) {
+          const { id } = await createConnection({ name: newConnName.trim(), description: newConnDesc.trim(), headers: heads });
+          connectionId = id;
+        }
+      } else if (authMode === "existing" && existingConnId) {
+        connectionId = existingConnId;
+      }
+      const entries: ImportEntry[] = parsed.endpoints
+        .filter((e) => selectedKeys.has(e.operationKey))
+        .map((e) => ({ ...e.importEntry, connectionId }));
+      const result = await importIntegrations(entries);
+      toast({
+        title: `Imported ${result.created} endpoint${result.created !== 1 ? "s" : ""}${connectionId ? " + linked to connection" : ""}`,
+        description: result.errors.length > 0 ? `${result.errors.length} skipped: ${result.errors.map((e) => e.name).join(", ")}` : "All selected endpoints were created.",
+      });
+      onOpenChange(false); onSuccess();
+    } catch (err: unknown) { toast({ title: "Import failed", description: (err as Error).message, variant: "destructive" }); }
+    finally { setImporting(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!importing) onOpenChange(v); }}>
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileCode className="h-5 w-5" /> Import from OpenAPI Spec
+            <div className="flex items-center gap-1 ml-4">
+              {([1, 2, 3] as const).map((n) => (
+                <span key={n} className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold transition-colors ${step >= n ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{n}</span>
+              ))}
+            </div>
+          </DialogTitle>
+          <DialogDescription>
+            {step === 1 && "Paste your OpenAPI 3.0 JSON spec. Lumxia will extract all endpoints automatically."}
+            {step === 2 && (parsed ? `${parsed.endpoints.length} endpoints found from ${parsed.baseUrl}. Select which to import.` : "")}
+            {step === 3 && "Configure authentication. One connection covers all selected endpoints."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto space-y-4 py-2">
+          {step === 1 && (
+            <>
+              <div className="flex items-center gap-2">
+                <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={(e) => {
+                  const file = e.target.files?.[0]; if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => { setSpecText(ev.target?.result as string ?? ""); setSpecError(null); };
+                  reader.readAsText(file);
+                }} />
+                <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><Upload className="h-3.5 w-3.5 mr-1.5" />Upload JSON file</Button>
+                <span className="text-xs text-muted-foreground">or paste below</span>
+              </div>
+              <Textarea
+                placeholder={`{\n  "openapi": "3.0.3",\n  "info": { "title": "My API", "version": "1.0.0" },\n  "servers": [{ "url": "https://api.example.com" }],\n  "paths": { ... }\n}`}
+                value={specText}
+                onChange={(e) => { setSpecText(e.target.value); setSpecError(null); }}
+                rows={14}
+                className="font-mono text-xs resize-none"
+              />
+              {specError && <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 rounded p-3"><XCircle className="h-4 w-4 mt-0.5 shrink-0" />{specError}</div>}
+            </>
+          )}
+
+          {step === 2 && parsed && (
+            <>
+              <div className="flex items-center gap-3 flex-wrap">
+                <p className="text-xs text-muted-foreground flex-1">Base URL: <span className="font-mono text-foreground">{parsed.baseUrl}</span></p>
+                <Button variant="outline" size="sm" onClick={toggleAll}>{selectedKeys.size > 0 ? "Deselect all" : "Select all"}</Button>
+                {slotsRemaining !== Infinity && <span className="text-xs text-muted-foreground">{selectedKeys.size} of {slotsRemaining} slots</span>}
+              </div>
+              {slotsRemaining === 0 && (
+                <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 dark:bg-amber-950/20 rounded p-3">
+                  <Lock className="h-4 w-4 shrink-0" />Integration quota reached. Upgrade to Pro for unlimited integrations.
+                </div>
+              )}
+              <div className="rounded border overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="px-3 py-2 w-8"><Checkbox checked={selectedKeys.size === parsed.endpoints.length} onCheckedChange={toggleAll} /></th>
+                      <th className="px-3 py-2 text-left font-semibold">Method</th>
+                      <th className="px-3 py-2 text-left font-semibold">Name</th>
+                      <th className="px-3 py-2 text-left font-semibold">Endpoint</th>
+                      <th className="px-3 py-2 text-center font-semibold">Params</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {parsed.endpoints.map((ep) => {
+                      const checked = selectedKeys.has(ep.operationKey);
+                      const disabled = !checked && slotsRemaining !== Infinity && selectedKeys.size >= slotsRemaining;
+                      return (
+                        <tr key={ep.operationKey} className={checked ? "bg-primary/5" : disabled ? "opacity-40" : "hover:bg-muted/30"} onClick={() => !disabled && toggleKey(ep.operationKey)} style={{ cursor: disabled ? "not-allowed" : "pointer" }}>
+                          <td className="px-3 py-2"><Checkbox checked={checked} disabled={disabled} onCheckedChange={() => !disabled && toggleKey(ep.operationKey)} onClick={(e) => e.stopPropagation()} /></td>
+                          <td className="px-3 py-2"><MethodBadge method={ep.method} /></td>
+                          <td className="px-3 py-2 font-medium max-w-[180px]">
+                            <p className="truncate">{ep.name}</p>
+                            {ep.description && <p className="text-muted-foreground text-[10px] truncate mt-0.5">{ep.description}</p>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-muted-foreground max-w-[200px] truncate">{ep.endpoint}</td>
+                          <td className="px-3 py-2 text-center text-muted-foreground">{ep.paramCount || "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {step === 3 && parsed && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">How should the <strong>{selectedKeys.size}</strong> imported endpoint{selectedKeys.size !== 1 ? "s" : ""} authenticate?</p>
+              {parsed.securitySchemes.length > 0 && (
+                <div className="rounded border p-3 space-y-1.5 bg-muted/30">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Detected auth schemes</p>
+                  {parsed.securitySchemes.map((s) => (
+                    <div key={s.name} className="flex items-center gap-2 text-xs">
+                      <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{s.name}</code>
+                      <span className="text-muted-foreground">→ header <code className="bg-muted px-1.5 rounded">{s.headerKey}</code></span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="space-y-3">
+                <label className={`flex items-start gap-3 rounded-lg border p-4 cursor-pointer transition-colors ${authMode === "new" ? "border-primary bg-primary/5" : "hover:bg-muted/30"}`}>
+                  <input type="radio" name="authMode" value="new" checked={authMode === "new"} onChange={() => setAuthMode("new")} className="mt-1 shrink-0" />
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <p className="text-sm font-semibold">Create a new Connection</p>
+                      <p className="text-xs text-muted-foreground">Enter credentials once — all {selectedKeys.size} endpoints link to this connection. Update the token any time without touching individual integrations.</p>
+                    </div>
+                    {authMode === "new" && (
+                      <div className="space-y-2">
+                        <Input placeholder="Connection name" value={newConnName} onChange={(e) => setNewConnName(e.target.value)} className="text-sm" />
+                        {parsed.securitySchemes.length > 0 ? (
+                          <div className="space-y-2">
+                            {parsed.securitySchemes.map((s) => (
+                              <div key={s.name} className="flex items-center gap-2">
+                                <code className="text-xs font-mono text-muted-foreground w-28 shrink-0">{s.headerKey}</code>
+                                <Input placeholder={s.headerValueHint} value={schemeValues[s.name] ?? ""} onChange={(e) => setSchemeValues((sv) => ({ ...sv, [s.name]: e.target.value }))} type="password" className="flex-1 font-mono text-xs" autoComplete="off" data-lpignore="true" />
+                              </div>
+                            ))}
+                            <p className="text-xs text-muted-foreground">Leave blank to fill in after import.</p>
+                          </div>
+                        ) : <p className="text-xs text-muted-foreground">No auth schemes detected. Add headers manually after import.</p>}
+                      </div>
+                    )}
+                  </div>
+                </label>
+
+                <label className={`flex items-start gap-3 rounded-lg border p-4 cursor-pointer transition-colors ${authMode === "existing" ? "border-primary bg-primary/5" : connections.length === 0 ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/30"}`}>
+                  <input type="radio" name="authMode" value="existing" checked={authMode === "existing"} onChange={() => setAuthMode("existing")} disabled={connections.length === 0} className="mt-1 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold">Use an existing Connection</p>
+                    <p className="text-xs text-muted-foreground mb-2">{connections.length === 0 ? "No connections available yet." : "Link to an existing credential set."}</p>
+                    {authMode === "existing" && connections.length > 0 && (
+                      <Select value={existingConnId} onValueChange={setExistingConnId}>
+                        <SelectTrigger className="text-sm"><SelectValue placeholder="Choose a connection…" /></SelectTrigger>
+                        <SelectContent>{connections.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}{c.headerKeys.length > 0 && <span className="text-muted-foreground ml-2 text-xs">({c.headerKeys.join(", ")})</span>}</SelectItem>)}</SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                </label>
+
+                <label className={`flex items-start gap-3 rounded-lg border p-4 cursor-pointer transition-colors ${authMode === "skip" ? "border-primary bg-primary/5" : "hover:bg-muted/30"}`}>
+                  <input type="radio" name="authMode" value="skip" checked={authMode === "skip"} onChange={() => setAuthMode("skip")} className="mt-1 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold">Skip — set up auth later</p>
+                    <p className="text-xs text-muted-foreground">Import without auth. Create a Connection or edit each integration afterwards.</p>
+                  </div>
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 pt-2 border-t">
+          {step > 1 && <Button variant="outline" onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3)} disabled={importing}>Back</Button>}
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={importing}>Cancel</Button>
+          {step === 1 && <Button onClick={handleParse} disabled={!specText.trim()}>Parse Spec →</Button>}
+          {step === 2 && <Button onClick={() => setStep(3)} disabled={selectedKeys.size === 0}>Configure Auth ({selectedKeys.size}) →</Button>}
+          {step === 3 && <Button onClick={handleImport} disabled={importing || selectedKeys.size === 0}>{importing ? "Importing…" : `Import ${selectedKeys.size} endpoint${selectedKeys.size !== 1 ? "s" : ""}`}</Button>}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function IntegrationsPage() {
   const router = useRouter();
   const { currentUser } = useStore();
@@ -661,6 +1086,10 @@ export default function IntegrationsPage() {
   const [retestingId, setRetestingId] = useState<string | null>(null);
   const [headersLoading, setHeadersLoading] = useState(false);
   const [revealedHeaders, setRevealedHeaders] = useState<Set<number>>(new Set());
+  const [connections, setConnections] = useState<ConnectionSummary[]>([]);
+  const [connectionsLoading, setConnectionsLoading] = useState(false);
+  const [openApiOpen, setOpenApiOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<"integrations" | "connections">("integrations");
 
   useEffect(() => {
     getMyTenantQuota().then((q) => {
@@ -669,15 +1098,24 @@ export default function IntegrationsPage() {
     }).catch(() => {});
   }, []);
 
+  const loadConnections = useCallback(async () => {
+    try {
+      setConnectionsLoading(true);
+      const data = await listConnections();
+      setConnections(data);
+    } catch { /* non-fatal */ } finally { setConnectionsLoading(false); }
+  }, []);
+
   const load = useCallback(async () => {
     try {
       setLoading(true);
       const data = await listAllIntegrations();
       setIntegrations(data);
+      void loadConnections();
     } catch (e: unknown) {
       toast({ title: "Failed to load integrations", description: (e as Error).message, variant: "destructive" });
     } finally { setLoading(false); }
-  }, [toast]);
+  }, [toast, loadConnections]);
 
   useEffect(() => { if (plan !== null && plan !== "free") load(); }, [load, plan]);
 
@@ -724,7 +1162,7 @@ export default function IntegrationsPage() {
   const openEdit = async (ig: IntegrationSummary) => {
     setEditTarget(ig);
     setRevealedHeaders(new Set());
-    setForm({ name: ig.name, description: ig.description, endpoint: ig.endpoint, method: ig.method, headers: [], bodyTemplate: ig.bodyTemplate, parameters: ig.parameters });
+    setForm({ name: ig.name, description: ig.description, endpoint: ig.endpoint, method: ig.method, headers: [], connectionId: ig.connectionId ?? "", bodyTemplate: ig.bodyTemplate, parameters: ig.parameters });
     setDialogOpen(true);
     setHeadersLoading(true);
     try {
@@ -745,10 +1183,10 @@ export default function IntegrationsPage() {
     try {
       const filteredHeaders = form.headers.filter((h) => h.key.trim());
       if (editTarget) {
-        const updatePayload: Parameters<typeof updateIntegration>[1] = { name: form.name.trim(), description: form.description.trim(), endpoint: form.endpoint.trim(), method: form.method, bodyTemplate: form.bodyTemplate, parameters: form.parameters.filter((p) => p.name.trim()), headers: filteredHeaders };
+        const updatePayload: Parameters<typeof updateIntegration>[1] = { name: form.name.trim(), description: form.description.trim(), endpoint: form.endpoint.trim(), method: form.method, bodyTemplate: form.bodyTemplate, parameters: form.parameters.filter((p) => p.name.trim()), headers: filteredHeaders, connectionId: form.connectionId || null };
         await updateIntegration(editTarget.id, updatePayload); toast({ title: "Integration updated" });
       } else {
-        await createIntegration({ name: form.name.trim(), description: form.description.trim(), endpoint: form.endpoint.trim(), method: form.method, headers: filteredHeaders, bodyTemplate: form.bodyTemplate, parameters: form.parameters.filter((p) => p.name.trim()) }); toast({ title: "Integration created" });
+        await createIntegration({ name: form.name.trim(), description: form.description.trim(), endpoint: form.endpoint.trim(), method: form.method, headers: filteredHeaders, connectionId: form.connectionId || undefined, bodyTemplate: form.bodyTemplate, parameters: form.parameters.filter((p) => p.name.trim()) }); toast({ title: "Integration created" });
       }
       setDialogOpen(false); await load();
     } catch (e: unknown) { toast({ title: "Save failed", description: (e as Error).message, variant: "destructive" }); }
@@ -860,6 +1298,9 @@ export default function IntegrationsPage() {
           <Button variant="outline" size="sm" onClick={() => { if (!requirePro("Import")) return; setImportInitialText(undefined); setImportOpen(true); }}>
             <Upload className="h-4 w-4 mr-1.5" />Import{!isPro && <Lock className="h-3 w-3 ml-1.5 opacity-60" />}
           </Button>
+          <Button variant="outline" size="sm" onClick={() => { if (!requirePro("OpenAPI Import")) return; setOpenApiOpen(true); }}>
+            <FileCode className="h-4 w-4 mr-1.5" />From OpenAPI{!isPro && <Lock className="h-3 w-3 ml-1.5 opacity-60" />}
+          </Button>
           {integrations.length > 0 && (
             isPro ? (
               <DropdownMenu>
@@ -921,6 +1362,20 @@ export default function IntegrationsPage() {
           onTemplates={() => { dismissOnboarding(); setTemplatesOpen(true); }}
         />
       )}
+
+      {/* Section tabs */}
+      <div className="flex gap-0 border-b">
+        <button onClick={() => setActiveSection("integrations")} className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${activeSection === "integrations" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+          <Plug2 className="h-3.5 w-3.5" />Integrations{integrations.length > 0 && <span className="ml-1 text-[10px] bg-muted px-1.5 py-0.5 rounded-full">{integrations.length}</span>}
+        </button>
+        <button onClick={() => { setActiveSection("connections"); loadConnections(); }} className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${activeSection === "connections" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+          <Globe className="h-3.5 w-3.5" />Connections{connections.length > 0 && <span className="ml-1 text-[10px] bg-muted px-1.5 py-0.5 rounded-full">{connections.length}</span>}
+        </button>
+      </div>
+
+      {activeSection === "connections" ? (
+        <ConnectionsSection connections={connections} loadingConnections={connectionsLoading} onReload={loadConnections} />
+      ) : <>
 
       {/* Test mode selection bar */}
       {selectMode && integrations.length > 0 && (
@@ -1040,12 +1495,15 @@ export default function IntegrationsPage() {
         </div>
       )}
 
+      </>}{/* end integrations section */}
+
       {/* Sheets & Dialogs */}
       <HelpSheet open={helpOpen} onOpenChange={setHelpOpen} />
       <TemplateGallery open={templatesOpen} onOpenChange={setTemplatesOpen} existingNames={existingNames}
         onImport={(entries) => { setImportInitialText(JSON.stringify(entries, null, 2)); setImportOpen(true); }} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} existingNames={existingNames} onSuccess={load} initialText={importInitialText} />
       <TestResultsSheet open={testResultsOpen} onOpenChange={setTestResultsOpen} results={testResults} onRetest={handleRetest} retestingId={retestingId} />
+      <OpenApiImportDialog open={openApiOpen} onOpenChange={setOpenApiOpen} connections={connections} onSuccess={() => { void load(); void loadConnections(); }} integrationQuota={integrationQuota} existingCount={integrations.length} />
 
       {/* Create/Edit */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1123,6 +1581,23 @@ export default function IntegrationsPage() {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Connection <span className="text-xs text-muted-foreground">(shared auth — merges with headers below; connection wins on conflict)</span></Label>
+              <Select value={form.connectionId || "_none"} onValueChange={(v) => setForm((f) => ({ ...f, connectionId: v === "_none" ? "" : v }))}>
+                <SelectTrigger><SelectValue placeholder="None (use own headers)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">None — manage headers below</SelectItem>
+                  {connections.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      <span className="flex items-center gap-2"><Globe className="h-3.5 w-3.5" />{c.name}{c.headerKeys.length > 0 && <span className="text-muted-foreground text-xs">({c.headerKeys.join(", ")})</span>}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {form.connectionId && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Link2 className="h-3 w-3" />Connection auth headers will be applied at execution time. Per-integration headers below are still merged as overrides.</p>
               )}
             </div>
             <div className="space-y-1.5">

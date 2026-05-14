@@ -24,6 +24,7 @@ export interface IntegrationRecord {
   endpoint: string;          // HTTPS only
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   headers: { key: string; value: string }[];  // Stored server-side only
+  connectionId?: string;     // Optional: shared Connection whose headers are merged at execution time
   bodyTemplate: string;      // JSON string with {{paramName}} placeholders
   parameters: IntegrationParameter[];
   createdAt: number;
@@ -84,6 +85,7 @@ export async function createIntegration(data: {
   endpoint: string;
   method: IntegrationRecord['method'];
   headers: { key: string; value: string }[];
+  connectionId?: string;
   bodyTemplate: string;
   parameters: IntegrationParameter[];
 }): Promise<{ id: string }> {
@@ -115,6 +117,7 @@ export async function createIntegration(data: {
     endpoint: data.endpoint.trim(),
     method: data.method,
     headers: data.headers.filter((h) => h.key.trim() && isValidHeaderName(h.key.trim())).map(h => ({ key: h.key.trim(), value: normalizeHeaderValue(h.key, h.value) })),
+    ...(data.connectionId ? { connectionId: data.connectionId } : {}),
     bodyTemplate: data.bodyTemplate,
     parameters: data.parameters,
     createdAt: now,
@@ -184,6 +187,7 @@ export async function updateIntegration(
     endpoint: string;
     method: IntegrationRecord['method'];
     headers: { key: string; value: string }[];
+    connectionId: string | null;
     bodyTemplate: string;
     parameters: IntegrationParameter[];
   }>
@@ -200,11 +204,17 @@ export async function updateIntegration(
   if (data.endpoint) validateEndpoint(data.endpoint);
 
   // Normalize header key/value whitespace and auto-prefix bare Authorization tokens
-  const normalized = data.headers
-    ? { ...data, headers: data.headers.map(h => ({ key: h.key.trim(), value: normalizeHeaderValue(h.key, h.value) })) }
-    : data;
+  const normalized: Record<string, unknown> = { ...data, updatedAt: Date.now() };
+  if (data.headers) {
+    normalized.headers = data.headers.map((h) => ({ key: h.key.trim(), value: normalizeHeaderValue(h.key, h.value) }));
+  }
+  // null means "remove the connection" — store as FieldValue delete equivalent
+  if (data.connectionId === null) {
+    const { FieldValue } = await import('firebase-admin/firestore');
+    normalized.connectionId = FieldValue.delete();
+  }
 
-  await ref.update({ ...normalized, updatedAt: Date.now() });
+  await ref.update(normalized);
 }
 
 export async function deleteIntegration(id: string): Promise<void> {
@@ -288,11 +298,23 @@ export async function executeIntegration(
     }
   }
 
-  // Build request headers
+  // Build request headers — connection headers first (lower priority), integration headers override
   const reqHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     'User-Agent': 'Lumxia-Integration/1.0',
   };
+  if (integration.connectionId) {
+    const connSnap = await adminDb.collection('connections').doc(integration.connectionId).get();
+    if (connSnap.exists) {
+      const connData = connSnap.data() as { tenantId: string; headers: { key: string; value: string }[] };
+      if (connData.tenantId === user.tenantId) {
+        for (const { key, value } of (connData.headers ?? [])) {
+          const k = key.trim();
+          if (k && isValidHeaderName(k)) reqHeaders[k] = normalizeHeaderValue(k, value);
+        }
+      }
+    }
+  }
   for (const { key, value } of integration.headers) {
     const k = key.trim();
     if (k && isValidHeaderName(k)) reqHeaders[k] = normalizeHeaderValue(k, value);
@@ -357,6 +379,7 @@ export interface ImportEntry {
   endpoint?: unknown;
   method?: unknown;
   headers?: unknown;
+  connectionId?: unknown;
   bodyTemplate?: unknown;
   parameters?: unknown;
   enabled?: unknown;
@@ -431,6 +454,7 @@ export async function importIntegrations(entries: ImportEntry[]): Promise<Import
 
       const id = randomUUID();
       const now = Date.now();
+      const connectionId = typeof e.connectionId === 'string' && e.connectionId.trim() ? e.connectionId.trim() : undefined;
       await adminDb.collection('integrations').doc(id).set({
         id,
         tenantId: user!.tenantId,
@@ -440,6 +464,7 @@ export async function importIntegrations(entries: ImportEntry[]): Promise<Import
         endpoint: (e.endpoint as string).trim(),
         method,
         headers,
+        ...(connectionId ? { connectionId } : {}),
         bodyTemplate: typeof e.bodyTemplate === 'string' ? e.bodyTemplate : '',
         parameters,
         createdAt: now,
